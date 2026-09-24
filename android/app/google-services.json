@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "336914296469",
+    "project_id": "fesync-app-2026",
+    "storage_bucket": "fesync-app-2026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:336914296469:android:834e14511445b5d7cf759c",
+        "android_client_info": {
+          "package_name": "com.example.fesync"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "336914296469-ofakm97doah0q6lg0s67343om4qe06je.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBVONjr4VRO05tDbQs2nbYzW7EWQiIj39k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "336914296469-ofakm97doah0q6lg0s67343om4qe06je.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "336914296469-r6eusvlju219s9t3a6cu33or58pj15r6.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.fesync"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
