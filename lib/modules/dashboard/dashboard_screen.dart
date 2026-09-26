@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/app_models.dart';
 import '../agenda/agenda_screen.dart';
+import '../capacitaciones/capacitaciones_screen.dart';
+import '../comunidad/comunidad_screen.dart';
+import '../escuela/escuela_screen.dart';
 import '../servidores/servidores_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
@@ -21,8 +24,6 @@ class DashboardScreen extends StatelessWidget {
       backgroundColor: const Color(0xFF0F1115),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A1D24),
-
-        // Consultamos en tiempo real los datos de la Iglesia.
         title: StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance
               .collection('iglesias')
@@ -133,19 +134,10 @@ class DashboardScreen extends StatelessWidget {
                     },
                   ),
                   _ModuloCard(
-                    titulo: 'Adora Live',
-                    subtitulo: 'Repertorio y alabanza',
-                    icono: Icons.music_note,
-                    color: const Color(0xFF8B5CF6),
-                    disponible: false,
-                    onTap: () {},
-                  ),
-                  _ModuloCard(
                     titulo: 'Agenda General',
                     subtitulo: 'Cultos y reuniones',
                     icono: Icons.calendar_month,
                     color: const Color(0xFF10B981),
-                    disponible: true,
                     onTap: () {
                       Navigator.push(
                         context,
@@ -154,6 +146,57 @@ class DashboardScreen extends StatelessWidget {
                         ),
                       );
                     },
+                  ),
+                  _ModuloCard(
+                    titulo: 'Capacitaciones',
+                    subtitulo: 'Videos, lecturas y formación',
+                    icono: Icons.school,
+                    color: const Color(0xFF06B6D4),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              CapacitacionesScreen(usuario: usuario),
+                        ),
+                      );
+                    },
+                  ),
+                  _ModuloCard(
+                    titulo: 'Escuela Bíblica',
+                    subtitulo: 'Módulos, clases y formación',
+                    icono: Icons.menu_book,
+                    color: const Color(0xFFF59E0B),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => EscuelaScreen(usuario: usuario),
+                        ),
+                      );
+                    },
+                  ),
+                  _ModuloCard(
+                    titulo: 'Comunidad',
+                    subtitulo: 'Avisos y peticiones',
+                    icono: Icons.groups,
+                    color: const Color(0xFFEC4899),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ComunidadScreen(usuario: usuario),
+                        ),
+                      );
+                    },
+                  ),
+                  _ModuloCard(
+                    titulo: 'Adora Live',
+                    subtitulo: 'Repertorio y alabanza',
+                    icono: Icons.music_note,
+                    color: const Color(0xFF8B5CF6),
+                    disponible: false,
+                    onTap: () {},
                   ),
                 ],
               ),
