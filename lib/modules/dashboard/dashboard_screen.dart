@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/models/app_models.dart';
+import '../adora_live/adora_live_screen.dart';
 import '../agenda/agenda_screen.dart';
 import '../capacitaciones/capacitaciones_screen.dart';
 import '../comunidad/comunidad_screen.dart';
@@ -192,11 +193,17 @@ class DashboardScreen extends StatelessWidget {
                   ),
                   _ModuloCard(
                     titulo: 'Adora Live',
-                    subtitulo: 'Repertorio y alabanza',
+                    subtitulo: 'Repertorio, agenda y setlists',
                     icono: Icons.music_note,
                     color: const Color(0xFF8B5CF6),
-                    disponible: false,
-                    onTap: () {},
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => AdoraLiveScreen(usuario: usuario),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
