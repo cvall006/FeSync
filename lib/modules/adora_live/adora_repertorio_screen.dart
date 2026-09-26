@@ -31,6 +31,10 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
 
     final tonoCtrl = TextEditingController(text: cancion?.tono ?? '');
 
+    final vozCtrl = TextEditingController(text: cancion?.vozPrincipal ?? '');
+
+    final youtubeCtrl = TextEditingController(text: cancion?.youtube ?? '');
+
     final letraCtrl = TextEditingController(text: cancion?.letra ?? '');
 
     await showModalBottomSheet<void>(
@@ -69,27 +73,58 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: autorCtrl,
-                  decoration: const InputDecoration(labelText: 'Autor'),
+                  decoration: const InputDecoration(
+                    labelText: 'Autor original',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: tonoCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Tono (ej: Do)',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: TextField(
+                        controller: vozCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Voz Principal (ej: Juan)',
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 TextField(
-                  controller: tonoCtrl,
+                  controller: youtubeCtrl,
+                  minLines: 2,
+                  maxLines: 5,
                   decoration: const InputDecoration(
-                    labelText: 'Tono (ej: G, Bm)',
+                    labelText: 'Links de Tutoriales (Uno por línea)',
+                    alignLabelWithHint: true,
+                    hintText:
+                        'Guitarra: https://youtube.com/...\n'
+                        'Piano: https://youtube.com/...',
                   ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: letraCtrl,
-                  minLines: 8,
-                  maxLines: 16,
+                  minLines: 10,
+                  maxLines: 20,
                   style: const TextStyle(fontFamily: 'Courier'),
                   decoration: const InputDecoration(
-                    labelText: 'Letra y acordes',
+                    labelText: 'Letra con acordes [Do]',
                     alignLabelWithHint: true,
                     hintText:
-                        '[G]Santo, santo\n'
-                        '[C]Digno es el Señor...',
+                        'Intro:\n'
+                        '[Bm] [-] [G] [-] [D] [-] [A]\n\n'
+                        'Qu[Bm]iero levantar a ti[G] mis manos...',
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -100,6 +135,9 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF3B82F6),
                       foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
                     ),
                     onPressed: () async {
                       if (tituloCtrl.text.trim().isEmpty) {
@@ -110,6 +148,8 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                         'titulo': tituloCtrl.text.trim(),
                         'autor': autorCtrl.text.trim(),
                         'tono': tonoCtrl.text.trim(),
+                        'voz_principal': vozCtrl.text.trim(),
+                        'youtube': youtubeCtrl.text.trim(),
                         'letra': letraCtrl.text.trim(),
                         'creadorUid': cancion?.creadorUid.isNotEmpty == true
                             ? cancion!.creadorUid
@@ -132,9 +172,7 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                       Navigator.pop(ctx);
                     },
                     child: Text(
-                      cancion == null
-                          ? 'Guardar Canción'
-                          : 'Actualizar Canción',
+                      cancion == null ? 'Guardar Canción' : 'Guardar Canción',
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -149,6 +187,8 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
     tituloCtrl.dispose();
     autorCtrl.dispose();
     tonoCtrl.dispose();
+    vozCtrl.dispose();
+    youtubeCtrl.dispose();
     letraCtrl.dispose();
   }
 
@@ -214,6 +254,24 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
     if (resultado == 'editar') {
       await _abrirEditor(cancion: cancion);
     }
+  }
+
+  String _descripcionCancion(AdoraCancionModel cancion) {
+    final partes = <String>[];
+
+    if (cancion.autor.isNotEmpty) {
+      partes.add(cancion.autor);
+    }
+
+    if (cancion.tono.isNotEmpty) {
+      partes.add('Tono: ${cancion.tono}');
+    }
+
+    if (cancion.vozPrincipal.isNotEmpty) {
+      partes.add('🎤 ${cancion.vozPrincipal}');
+    }
+
+    return partes.join(' • ');
   }
 
   @override
@@ -297,6 +355,8 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                   itemBuilder: (context, index) {
                     final cancion = canciones[index];
 
+                    final descripcion = _descripcionCancion(cancion);
+
                     return Card(
                       color: const Color(0xFF1A1D24),
                       margin: const EdgeInsets.only(bottom: 12),
@@ -312,12 +372,9 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                         leading: CircleAvatar(
                           backgroundColor: const Color(0xFF3B82F6)
                               .withValues(alpha: 0.18),
-                          child: Text(
-                            cancion.tono.isEmpty ? '-' : cancion.tono,
-                            style: const TextStyle(
-                              color: Color(0xFF60A5FA),
-                              fontWeight: FontWeight.bold,
-                            ),
+                          child: const Icon(
+                            Icons.music_note,
+                            color: Color(0xFF60A5FA),
                           ),
                         ),
                         title: Text(
@@ -328,10 +385,10 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                           ),
                         ),
                         subtitle: Text(
-                          cancion.autor.isEmpty
-                              ? 'Autor desconocido'
-                              : cancion.autor,
-                          style: const TextStyle(color: Color(0xFF94A3B8)),
+                          descripcion.isEmpty
+                              ? 'Sin información adicional'
+                              : descripcion,
+                          style: const TextStyle(color: Color(0xFFCBD5E1)),
                         ),
                         trailing: _puedeGestionar
                             ? PopupMenuButton<String>(

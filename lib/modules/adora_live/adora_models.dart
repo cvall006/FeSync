@@ -1,11 +1,20 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+class AdoraTutorialModel {
+  final String nombre;
+  final String url;
+
+  const AdoraTutorialModel({required this.nombre, required this.url});
+}
+
 class AdoraCancionModel {
   final String id;
   final String titulo;
   final String autor;
   final String tono;
   final String letra;
+  final String vozPrincipal;
+  final String youtube;
   final String creadorUid;
   final DateTime? fechaCreacion;
 
@@ -15,9 +24,53 @@ class AdoraCancionModel {
     required this.autor,
     required this.tono,
     required this.letra,
+    required this.vozPrincipal,
+    required this.youtube,
     required this.creadorUid,
     required this.fechaCreacion,
   });
+
+  List<AdoraTutorialModel> get tutoriales {
+    final resultado = <AdoraTutorialModel>[];
+
+    final lineas = youtube.split(RegExp(r'\r?\n'));
+
+    int indice = 1;
+
+    for (final lineaOriginal in lineas) {
+      final linea = lineaOriginal.trim();
+
+      if (linea.isEmpty) {
+        continue;
+      }
+
+      final match = RegExp(
+        r'https?://\S+',
+        caseSensitive: false,
+      ).firstMatch(linea);
+
+      if (match == null) {
+        continue;
+      }
+
+      final url = match.group(0)!;
+
+      var nombre = linea
+          .substring(0, match.start)
+          .trim()
+          .replaceFirst(RegExp(r'[:\-\s]+$'), '');
+
+      if (nombre.isEmpty) {
+        nombre = 'Tutorial $indice';
+      }
+
+      resultado.add(AdoraTutorialModel(nombre: nombre, url: url));
+
+      indice++;
+    }
+
+    return resultado;
+  }
 
   factory AdoraCancionModel.fromMap(Map<String, dynamic> map, String id) {
     DateTime? fecha;
@@ -36,6 +89,11 @@ class AdoraCancionModel {
       autor: map['autor']?.toString() ?? '',
       tono: map['tono']?.toString() ?? '',
       letra: map['letra']?.toString() ?? '',
+      vozPrincipal:
+          map['voz_principal']?.toString() ??
+          map['vozPrincipal']?.toString() ??
+          '',
+      youtube: map['youtube']?.toString() ?? '',
       creadorUid: map['creadorUid']?.toString() ?? '',
       fechaCreacion: fecha,
     );
@@ -47,6 +105,8 @@ class AdoraCancionModel {
       'autor': autor,
       'tono': tono,
       'letra': letra,
+      'voz_principal': vozPrincipal,
+      'youtube': youtube,
       'creadorUid': creadorUid,
     };
   }

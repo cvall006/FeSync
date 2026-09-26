@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'adora_models.dart';
 
@@ -10,22 +11,28 @@ class BloqueAcorde {
   const BloqueAcorde({required this.acordeOriginal, required this.letra});
 }
 
+bool _esEtiquetaSeccion(String texto) {
+  final limpio = texto.trim();
+
+  if (RegExp(
+    r'^(intro|coro|puente|estrofa|verso|final|instrumental|pre[\s-]?coro)\s*:?\s*$',
+    caseSensitive: false,
+  ).hasMatch(limpio)) {
+    return true;
+  }
+
+  return RegExp(r'^=+\s*.+?\s*=+$').hasMatch(limpio);
+}
+
 bool _esLineaDeAcordes(String texto) {
-  String temp = texto.trim();
+  final temp = texto.trim();
 
   if (temp.isEmpty) {
     return false;
   }
 
-  temp = temp
-      .replaceAll(
-        RegExp(r'(intro|coro|puente|estrofa|final):?', caseSensitive: false),
-        '',
-      )
-      .trim();
-
-  if (temp.isEmpty) {
-    return true;
+  if (_esEtiquetaSeccion(temp)) {
+    return false;
   }
 
   final palabras = temp.split(RegExp(r'\s+'));
@@ -36,11 +43,15 @@ bool _esLineaDeAcordes(String texto) {
   );
 
   for (final palabra in palabras) {
-    if (palabra == '|' || palabra == '-') {
+    if (palabra == '|' || palabra == '-' || palabra == '[-]') {
       continue;
     }
 
-    final limpia = palabra.replaceAll(RegExp(r'[\(\)\*]'), '');
+    final limpia = palabra.replaceAll(RegExp(r'[\[\]\(\)\*]'), '');
+
+    if (limpia.isEmpty) {
+      continue;
+    }
 
     if (!acordeRegex.hasMatch(limpia)) {
       return false;
@@ -51,8 +62,6 @@ bool _esLineaDeAcordes(String texto) {
 }
 
 List<BloqueAcorde> procesarLinea(String linea) {
-  final bloques = <BloqueAcorde>[];
-
   if (!linea.contains('[')) {
     final lineaPreservada = linea.replaceAll(' ', '\u00A0');
 
@@ -63,15 +72,7 @@ List<BloqueAcorde> procesarLinea(String linea) {
     return [BloqueAcorde(acordeOriginal: '', letra: lineaPreservada)];
   }
 
-  final lineaTrim = linea.trim();
-
-  if (lineaTrim.startsWith('[') &&
-      lineaTrim.endsWith(']') &&
-      !linea.substring(1, linea.length - 1).contains('[')) {
-    return [
-      BloqueAcorde(acordeOriginal: linea.replaceAll(' ', '\u00A0'), letra: ''),
-    ];
-  }
+  final bloques = <BloqueAcorde>[];
 
   final primerCorchete = linea.indexOf('[');
 
@@ -87,10 +88,14 @@ List<BloqueAcorde> procesarLinea(String linea) {
   final regex = RegExp(r'\[(.*?)\]([^\[]*)');
 
   for (final match in regex.allMatches(linea)) {
+    final acorde = match.group(1) ?? '';
+
+    final letra = match.group(2) ?? '';
+
     bloques.add(
       BloqueAcorde(
-        acordeOriginal: match.group(1) ?? '',
-        letra: (match.group(2) ?? '').replaceAll(' ', '\u00A0'),
+        acordeOriginal: acorde == '-' ? '' : acorde,
+        letra: letra.replaceAll(' ', '\u00A0'),
       ),
     );
   }
@@ -127,6 +132,7 @@ String transponerTextoAcorde(String textoAcorde, int pasos) {
 
   return limpio.replaceAllMapped(RegExp(r'[CDEFGAB]#?'), (match) {
     final nota = match.group(0)!;
+
     final index = notasMusicales.indexOf(nota);
 
     if (index == -1) {
@@ -163,6 +169,7 @@ class _AdoraVisorCancionScreenState extends State<AdoraVisorCancionScreen> {
 
   int _semitonos = 0;
   bool _autoScrollActivo = false;
+  bool _mostrarAcordes = true;
   double _velocidadScroll = 1;
 
   @override
@@ -248,6 +255,159 @@ class _AdoraVisorCancionScreenState extends State<AdoraVisorCancionScreen> {
     }
   }
 
+  void _alternarAcordes() {
+    setState(() {
+      _mostrarAcordes = !_mostrarAcordes;
+    });
+  }
+
+  Future<void> _abrirTutorial(String url) async {
+    final uri = Uri.tryParse(url);
+
+    if (uri == null || !await launchUrl(uri)) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No fue posible abrir el tutorial.')),
+      );
+    }
+  }
+
+  Future<void> _mostrarTutoriales() async {
+    final tutoriales = widget.cancion.tutoriales;
+
+    if (tutoriales.isEmpty) {
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1F1F1F),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Material de Ensayo / Guías',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                ...tutoriales.map(
+                  (tutorial) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(
+                      Icons.smart_display,
+                      color: Colors.redAccent,
+                    ),
+                    title: Text(
+                      tutorial.nombre,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    trailing: const Icon(
+                      Icons.open_in_new,
+                      color: Color(0xFF94A3B8),
+                    ),
+                    onTap: () async {
+                      Navigator.pop(ctx);
+
+                      await _abrirTutorial(tutorial.url);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLinea(String linea) {
+    if (linea.trim().isEmpty) {
+      return const SizedBox(height: 16);
+    }
+
+    final bloques = procesarLinea(linea);
+
+    if (!_mostrarAcordes) {
+      final soloLetra = bloques
+          .map((bloque) => bloque.letra)
+          .join()
+          .replaceAll('\u00A0', ' ');
+
+      if (soloLetra.trim().isEmpty) {
+        return const SizedBox.shrink();
+      }
+
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 5),
+        child: Text(
+          soloLetra,
+          style: const TextStyle(
+            fontSize: 18,
+            color: Colors.white,
+            height: 1.35,
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: bloques.map((bloque) {
+          final acorde = transponerTextoAcorde(
+            bloque.acordeOriginal,
+            _semitonos,
+          );
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (acorde.isNotEmpty)
+                Text(
+                  acorde,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF3B82F6),
+                    fontSize: 18,
+                    fontFamily: 'Courier',
+                  ),
+                ),
+              if (bloque.letra.isNotEmpty)
+                Text(
+                  bloque.letra,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    color: Colors.white,
+                    fontFamily: 'Courier',
+                    height: 1.2,
+                  ),
+                ),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final lineas = widget.cancion.letra.split('\n');
@@ -258,6 +418,22 @@ class _AdoraVisorCancionScreenState extends State<AdoraVisorCancionScreen> {
         backgroundColor: const Color(0xFF1A1D24),
         title: Text(widget.cancion.titulo),
         actions: [
+          if (widget.cancion.tutoriales.isNotEmpty)
+            IconButton(
+              tooltip: 'Material de ensayo',
+              onPressed: _mostrarTutoriales,
+              icon: const Icon(Icons.smart_display, color: Colors.redAccent),
+            ),
+          IconButton(
+            tooltip: _mostrarAcordes ? 'Solo letra' : 'Mostrar acordes',
+            onPressed: _alternarAcordes,
+            icon: Icon(
+              Icons.mic,
+              color: _mostrarAcordes
+                  ? const Color(0xFF94A3B8)
+                  : const Color(0xFF34D399),
+            ),
+          ),
           if (widget.puedeEditar)
             IconButton(
               tooltip: 'Editar canción',
@@ -270,73 +446,77 @@ class _AdoraVisorCancionScreenState extends State<AdoraVisorCancionScreen> {
       ),
       body: Column(
         children: [
-          Container(
-            color: const Color(0xFF1A1D24),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
+          if (_mostrarAcordes)
+            Container(
+              color: const Color(0xFF1A1D24),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.music_note,
+                    color: Color(0xFF94A3B8),
+                    size: 18,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Tono: ${widget.cancion.tono.isEmpty ? "-" : widget.cancion.tono}',
+                    style: const TextStyle(color: Color(0xFF94A3B8)),
+                  ),
+                  if (widget.cancion.vozPrincipal.isNotEmpty) ...[
+                    const SizedBox(width: 16),
                     const Icon(
-                      Icons.music_note,
-                      color: Color(0xFF94A3B8),
-                      size: 20,
+                      Icons.person,
+                      color: Color(0xFF60A5FA),
+                      size: 18,
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 5),
                     Text(
-                      'Tono: ${widget.cancion.tono.isEmpty ? "-" : widget.cancion.tono}',
-                      style: const TextStyle(color: Color(0xFF94A3B8)),
+                      widget.cancion.vozPrincipal,
+                      style: const TextStyle(
+                        color: Color(0xFFCBD5E1),
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
-                ),
-                Row(
-                  children: [
-                    IconButton(
-                      tooltip: 'Bajar semitono',
-                      icon: const Icon(
-                        Icons.remove_circle_outline,
-                        color: Color(0xFF60A5FA),
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _semitonos--;
-                        });
-                      },
+                  const Spacer(),
+                  IconButton(
+                    tooltip: 'Bajar semitono',
+                    onPressed: () {
+                      setState(() {
+                        _semitonos--;
+                      });
+                    },
+                    icon: const Icon(
+                      Icons.remove_circle_outline,
+                      color: Color(0xFF3B82F6),
                     ),
-                    SizedBox(
-                      width: 45,
-                      child: Text(
-                        _semitonos == 0
-                            ? 'Orig'
-                            : _semitonos > 0
-                            ? '+$_semitonos'
-                            : '$_semitonos',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
+                  ),
+                  Text(
+                    _semitonos == 0
+                        ? 'Orig'
+                        : _semitonos > 0
+                        ? '+$_semitonos'
+                        : '$_semitonos',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
                     ),
-                    IconButton(
-                      tooltip: 'Subir semitono',
-                      icon: const Icon(
-                        Icons.add_circle_outline,
-                        color: Color(0xFF60A5FA),
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _semitonos++;
-                        });
-                      },
+                  ),
+                  IconButton(
+                    tooltip: 'Subir semitono',
+                    onPressed: () {
+                      setState(() {
+                        _semitonos++;
+                      });
+                    },
+                    icon: const Icon(
+                      Icons.add_circle_outline,
+                      color: Color(0xFF3B82F6),
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
-          ),
           Expanded(
             child: NotificationListener<UserScrollNotification>(
               onNotification: (notification) {
@@ -354,56 +534,13 @@ class _AdoraVisorCancionScreenState extends State<AdoraVisorCancionScreen> {
               child: SingleChildScrollView(
                 controller: _scrollController,
                 padding: const EdgeInsets.fromLTRB(20, 24, 20, 100),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: lineas.map((linea) {
-                      if (linea.trim().isEmpty) {
-                        return const SizedBox(height: 16);
-                      }
-
-                      final bloques = procesarLinea(linea);
-
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 5),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: bloques.map((bloque) {
-                            final acorde = transponerTextoAcorde(
-                              bloque.acordeOriginal,
-                              _semitonos,
-                            );
-
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (acorde.isNotEmpty)
-                                  Text(
-                                    acorde,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF60A5FA),
-                                      fontSize: 18,
-                                      fontFamily: 'Courier',
-                                    ),
-                                  ),
-                                if (bloque.letra.isNotEmpty)
-                                  Text(
-                                    bloque.letra,
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      color: Colors.white,
-                                      fontFamily: 'Courier',
-                                      height: 1.2,
-                                    ),
-                                  ),
-                              ],
-                            );
-                          }).toList(),
-                        ),
-                      );
-                    }).toList(),
+                child: Center(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: lineas.map(_buildLinea).toList(),
+                    ),
                   ),
                 ),
               ),
