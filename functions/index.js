@@ -31,9 +31,7 @@ async function obtenerDestinatarios(
 ) {
   const usuariosSnapshot =
     await db
-      .collection(
-        'usuarios_globales',
-      )
+      .collection('usuarios_globales')
       .where(
         'iglesiaId',
         '==',
@@ -51,9 +49,7 @@ async function obtenerDestinatarios(
 
         const dispositivosSnapshot =
           await usuarioDoc.ref
-            .collection(
-              'dispositivos',
-            )
+            .collection('dispositivos')
             .where(
               'activo',
               '==',
@@ -90,8 +86,6 @@ async function obtenerDestinatarios(
           );
         }
 
-        // Compatibilidad con clientes antiguos que
-        // aún solo poseen el campo fcmToken.
         const legacyToken =
           usuario.fcmToken
             ?.toString()
@@ -158,6 +152,135 @@ async function limpiarTokenInvalido(
   }
 }
 
+async function enviarNotificacionIglesia({
+  iglesiaId,
+  titulo,
+  cuerpo,
+  data,
+}) {
+  const destinos =
+    await obtenerDestinatarios(
+      iglesiaId,
+    );
+
+  if (destinos.length === 0) {
+    console.log(
+      `No hay tokens FCM para iglesia ${iglesiaId}.`,
+    );
+
+    return {
+      successCount: 0,
+      failureCount: 0,
+    };
+  }
+
+  const respuesta =
+    await getMessaging()
+      .sendEachForMulticast({
+        tokens:
+          destinos.map(
+            (destino) =>
+              destino.token,
+          ),
+
+        notification: {
+          title: titulo,
+          body: cuerpo,
+        },
+
+        data: {
+          iglesiaId,
+          ...data,
+        },
+
+        android: {
+          priority: 'high',
+        },
+
+        webpush: {
+          notification: {
+            icon:
+              '/icons/Icon-192.png',
+            badge:
+              '/icons/Icon-192.png',
+          },
+        },
+      });
+
+  console.log(
+    `Éxito: Se enviaron `
+    + `${respuesta.successCount} notificaciones.`,
+  );
+
+  if (
+    respuesta.failureCount > 0
+  ) {
+    console.log(
+      `Fallaron ${respuesta.failureCount} notificaciones.`,
+    );
+
+    const limpiezas = [];
+
+    respuesta.responses.forEach(
+      (
+        resultado,
+        index,
+      ) => {
+        if (resultado.success) {
+          return;
+        }
+
+        const errorCode =
+          resultado.error?.code ??
+          'error desconocido';
+
+        console.log(
+          `Token ${index}: ${errorCode}`,
+        );
+
+        if (
+          tokenDebeEliminarse(
+            errorCode,
+          )
+        ) {
+          limpiezas.push(
+            limpiarTokenInvalido(
+              destinos[index],
+            ),
+          );
+        }
+      },
+    );
+
+    await Promise.all(
+      limpiezas,
+    );
+  }
+
+  return respuesta;
+}
+
+function recortarTexto(
+  valor,
+  maximo = 120,
+) {
+  const texto =
+    String(valor ?? '').trim();
+
+  if (!texto) {
+    return '';
+  }
+
+  if (texto.length <= maximo) {
+    return texto;
+  }
+
+  return `${texto.substring(
+    0,
+    maximo - 3,
+  )}...`;
+}
+
 exports.notificarNuevoMuro =
   onDocumentCreated(
     'iglesias/{iglesiaId}/muro_comunidad/{publicacionId}',
@@ -166,9 +289,6 @@ exports.notificarNuevoMuro =
         event.data;
 
       if (!snapshot) {
-        console.log(
-          'Evento recibido sin documento.',
-        );
         return;
       }
 
@@ -192,148 +312,214 @@ exports.notificarNuevoMuro =
         '';
 
       const contenido =
-        publicacion.contenido
-          ?.toString() ??
-        '';
+        recortarTexto(
+          publicacion.contenido,
+        );
 
       const tipo =
         publicacion.tipo
           ?.toString() ??
         'publicacion';
 
+      let titulo =
+        'Nueva publicación';
+
+      if (tipo === 'aviso') {
+        titulo = 'Nuevo aviso';
+      }
+
+      if (tipo === 'peticion') {
+        titulo =
+          'Nueva petición';
+      }
+
       console.log(
         `Nueva publicación ${publicacionId} `
         + `en iglesia ${iglesiaId}.`,
       );
 
-      const destinos =
-        await obtenerDestinatarios(
-          iglesiaId,
-        );
+      await enviarNotificacionIglesia({
+        iglesiaId,
+        titulo:
+          `${titulo} · ${autorNombre}`,
+        cuerpo:
+          contenido ||
+          'Hay una nueva publicación en Comunidad.',
+        data: {
+          tipo: 'muro_comunidad',
+          publicacionId,
+          autorUid,
+        },
+      });
+    },
+  );
 
-      if (
-        destinos.length === 0
-      ) {
-        console.log(
-          'No hay tokens FCM disponibles para esta iglesia.',
-        );
+exports.notificarNuevoEventoAgenda =
+  onDocumentCreated(
+    'iglesias/{iglesiaId}/agenda_eventos/{eventoId}',
+    async (event) => {
+      const snapshot =
+        event.data;
+
+      if (!snapshot) {
         return;
       }
 
-      let titulo =
-        'Nueva publicación';
+      const evento =
+        snapshot.data();
 
-      if (tipo === 'aviso') {
-        titulo =
-          'Nuevo aviso';
-      }
+      const iglesiaId =
+        event.params.iglesiaId;
 
-      if (
-        tipo === 'peticion'
-      ) {
-        titulo =
-          'Nueva petición';
-      }
+      const eventoId =
+        event.params.eventoId;
 
-      const cuerpo =
-        contenido.length > 120
-          ? `${contenido.substring(
-              0,
-              117,
-            )}...`
-          : contenido;
+      const tituloEvento =
+        evento.titulo
+          ?.toString() ??
+        'Nuevo evento';
 
-      const respuesta =
-        await getMessaging()
-          .sendEachForMulticast({
-            tokens:
-              destinos.map(
-                (destino) =>
-                  destino.token,
-              ),
+      const fecha =
+        evento.fecha
+          ?.toString() ??
+        '';
 
-            notification: {
-              title:
-                `${titulo} · ${autorNombre}`,
-              body:
-                cuerpo ||
-                'Hay una nueva publicación en Comunidad.',
-            },
+      const hora =
+        evento.hora
+          ?.toString() ??
+        '';
 
-            data: {
-              tipo:
-                'muro_comunidad',
-              iglesiaId,
-              publicacionId,
-              autorUid,
-            },
+      const lugar =
+        evento.lugar
+          ?.toString() ??
+        '';
 
-            android: {
-              priority: 'high',
-            },
-
-            webpush: {
-              notification: {
-                icon:
-                  '/icons/Icon-192.png',
-                badge:
-                  '/icons/Icon-192.png',
-              },
-            },
-          });
+      const detalles = [
+        fecha,
+        hora,
+        lugar,
+      ]
+          .where(
+            (valor) =>
+                valor.trim().isNotEmpty,
+          )
+          .join(' · ');
 
       console.log(
-        `Éxito: Se enviaron `
-        + `${respuesta.successCount} notificaciones.`,
+        `Nuevo evento de agenda ${eventoId}.`,
       );
 
-      if (
-        respuesta.failureCount >
-        0
-      ) {
-        console.log(
-          `Fallaron ${respuesta.failureCount} notificaciones.`,
-        );
+      await enviarNotificacionIglesia({
+        iglesiaId,
+        titulo: 'Nuevo evento · $tituloEvento',
+        cuerpo:
+            detalles.isNotEmpty
+                ? detalles
+                : 'Hay una nueva actividad en la agenda.',
+        data: {
+          tipo: 'agenda',
+          eventoId,
+        },
+      });
+    },
+  );
 
-        const limpiezas = [];
+exports.notificarNuevoTurno =
+  onDocumentCreated(
+    'iglesias/{iglesiaId}/turnos_servicio/{turnoId}',
+    async (event) => {
+      const snapshot =
+        event.data;
 
-        respuesta.responses.forEach(
-          (
-            resultado,
-            index,
-          ) => {
-            if (
-              resultado.success
-            ) {
-              return;
-            }
-
-            const errorCode =
-              resultado.error
-                ?.code ??
-              'error desconocido';
-
-            console.log(
-              `Token ${index}: ${errorCode}`,
-            );
-
-            if (
-              tokenDebeEliminarse(
-                errorCode,
-              )
-            ) {
-              limpiezas.push(
-                limpiarTokenInvalido(
-                  destinos[index],
-                ),
-              );
-            }
-          },
-        );
-
-        await Promise.all(
-          limpiezas,
-        );
+      if (!snapshot) {
+        return;
       }
+
+      const turno =
+        snapshot.data();
+
+      const iglesiaId =
+        event.params.iglesiaId;
+
+      const turnoId =
+        event.params.turnoId;
+
+      const tituloTurno =
+        turno.titulo
+          ?.toString() ??
+        'Nuevo turno';
+
+      const fecha =
+        turno.fecha
+          ?.toString() ??
+        '';
+
+      console.log(
+        `Nuevo turno ${turnoId}.`,
+      );
+
+      await enviarNotificacionIglesia({
+        iglesiaId,
+        titulo:
+          'Nuevo turno de servicio',
+        cuerpo:
+          fecha.isNotEmpty
+              ? '$tituloTurno · $fecha'
+              : tituloTurno,
+        data: {
+          tipo: 'servidores',
+          turnoId,
+        },
+      });
+    },
+  );
+
+exports.notificarNuevoEventoAdora =
+  onDocumentCreated(
+    'iglesias/{iglesiaId}/adora_eventos/{eventoId}',
+    async (event) => {
+      const snapshot =
+        event.data;
+
+      if (!snapshot) {
+        return;
+      }
+
+      const evento =
+        snapshot.data();
+
+      const iglesiaId =
+        event.params.iglesiaId;
+
+      const eventoId =
+        event.params.eventoId;
+
+      const tituloEvento =
+        evento.titulo
+          ?.toString() ??
+        'Nuevo evento';
+
+      const tipoEvento =
+        evento.tipo
+          ?.toString() ??
+        '';
+
+      console.log(
+        `Nuevo evento Adora Live ${eventoId}.`,
+      );
+
+      await enviarNotificacionIglesia({
+        iglesiaId,
+        titulo:
+          'Adora Live · $tituloEvento',
+        cuerpo:
+          tipoEvento.isNotEmpty
+              ? tipoEvento
+              : 'Hay un nuevo evento del equipo de alabanza.',
+        data: {
+          tipo: 'adora_live',
+          eventoId,
+        },
+      });
     },
   );
