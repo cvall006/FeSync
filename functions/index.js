@@ -10,6 +10,7 @@ const {
 
 const {
   getFirestore,
+  FieldValue,
 } = require('firebase-admin/firestore');
 
 const {
@@ -23,145 +24,316 @@ setGlobalOptions({
   memory: '256MiB',
 });
 
-exports.notificarNuevoMuro = onDocumentCreated(
-  'iglesias/{iglesiaId}/muro_comunidad/{publicacionId}',
-  async (event) => {
-    const snapshot = event.data;
+const db = getFirestore();
 
-    if (!snapshot) {
-      console.log(
-        'Evento recibido sin documento.',
-      );
-      return;
-    }
+async function obtenerDestinatarios(
+  iglesiaId,
+) {
+  const usuariosSnapshot =
+    await db
+      .collection(
+        'usuarios_globales',
+      )
+      .where(
+        'iglesiaId',
+        '==',
+        iglesiaId,
+      )
+      .get();
 
-    const publicacion = snapshot.data();
+  const tokens = new Map();
 
-    const iglesiaId =
-      event.params.iglesiaId;
+  await Promise.all(
+    usuariosSnapshot.docs.map(
+      async (usuarioDoc) => {
+        const usuario =
+          usuarioDoc.data();
 
-    const publicacionId =
-      event.params.publicacionId;
+        const dispositivosSnapshot =
+          await usuarioDoc.ref
+            .collection(
+              'dispositivos',
+            )
+            .where(
+              'activo',
+              '==',
+              true,
+            )
+            .get();
 
-    const autorNombre =
-      publicacion.autorNombre?.toString() ??
-      'Un miembro';
+        for (
+          const dispositivoDoc
+          of dispositivosSnapshot.docs
+        ) {
+          const dispositivo =
+            dispositivoDoc.data();
 
-    const autorUid =
-      publicacion.autorUid?.toString() ?? '';
+          const token =
+            dispositivo.token
+              ?.toString()
+              .trim();
 
-    const contenido =
-      publicacion.contenido?.toString() ?? '';
+          if (!token) {
+            continue;
+          }
 
-    const tipo =
-      publicacion.tipo?.toString() ??
-      'publicacion';
+          tokens.set(
+            token,
+            {
+              token,
+              dispositivoRef:
+                dispositivoDoc.ref,
+              usuarioRef:
+                usuarioDoc.ref,
+              legacy: false,
+            },
+          );
+        }
 
-    console.log(
-      `Nueva publicación ${publicacionId} `
-      + `en iglesia ${iglesiaId}.`,
-    );
+        // Compatibilidad con clientes antiguos que
+        // aún solo poseen el campo fcmToken.
+        const legacyToken =
+          usuario.fcmToken
+            ?.toString()
+            .trim();
 
-    const usuariosSnapshot =
-      await getFirestore()
-        .collection('usuarios_globales')
-        .where(
-          'iglesiaId',
-          '==',
-          iglesiaId,
-        )
-        .get();
+        if (
+          legacyToken &&
+          !tokens.has(legacyToken)
+        ) {
+          tokens.set(
+            legacyToken,
+            {
+              token: legacyToken,
+              dispositivoRef: null,
+              usuarioRef:
+                usuarioDoc.ref,
+              legacy: true,
+            },
+          );
+        }
+      },
+    ),
+  );
 
-    const tokens = [];
+  return [...tokens.values()];
+}
 
-    for (const usuarioDoc of
-      usuariosSnapshot.docs) {
-      const usuario =
-        usuarioDoc.data();
+function tokenDebeEliminarse(
+  errorCode,
+) {
+  return (
+    errorCode ===
+      'messaging/registration-token-not-registered' ||
+    errorCode ===
+      'messaging/invalid-registration-token'
+  );
+}
 
-      const token =
-        usuario.fcmToken?.toString().trim();
+async function limpiarTokenInvalido(
+  destino,
+) {
+  if (destino.dispositivoRef) {
+    await destino.dispositivoRef.delete();
+  }
 
-      if (!token) {
-        continue;
-      }
+  if (destino.legacy) {
+    const snapshot =
+      await destino.usuarioRef.get();
 
-      tokens.push(token);
-    }
-
-    const tokensUnicos =
-      [...new Set(tokens)];
-
-    if (tokensUnicos.length === 0) {
-      console.log(
-        'No hay tokens FCM disponibles para esta iglesia.',
-      );
-
-      return;
-    }
-
-    let titulo = 'Nueva publicación';
-
-    if (tipo === 'aviso') {
-      titulo = 'Nuevo aviso';
-    }
-
-    if (tipo === 'peticion') {
-      titulo = 'Nueva petición';
-    }
-
-    const cuerpo =
-      contenido.length > 120
-        ? `${contenido.substring(0, 117)}...`
-        : contenido;
-
-    const respuesta =
-      await getMessaging()
-        .sendEachForMulticast({
-          tokens: tokensUnicos,
-
-          notification: {
-            title:
-              `${titulo} · ${autorNombre}`,
-            body:
-              cuerpo ||
-              'Hay una nueva publicación en Comunidad.',
-          },
-
-          data: {
-            tipo: 'muro_comunidad',
-            iglesiaId,
-            publicacionId,
-            autorUid,
-          },
-
-          android: {
-            priority: 'high',
-          },
-        });
-
-    console.log(
-      `Éxito: Se enviaron `
-      + `${respuesta.successCount} notificaciones.`,
-    );
+    const data =
+      snapshot.data();
 
     if (
-      respuesta.failureCount > 0
+      data?.fcmToken ===
+      destino.token
     ) {
+      await destino.usuarioRef.update({
+        fcmToken:
+          FieldValue.delete(),
+        fcmTokenActualizado:
+          FieldValue.delete(),
+      });
+    }
+  }
+}
+
+exports.notificarNuevoMuro =
+  onDocumentCreated(
+    'iglesias/{iglesiaId}/muro_comunidad/{publicacionId}',
+    async (event) => {
+      const snapshot =
+        event.data;
+
+      if (!snapshot) {
+        console.log(
+          'Evento recibido sin documento.',
+        );
+        return;
+      }
+
+      const publicacion =
+        snapshot.data();
+
+      const iglesiaId =
+        event.params.iglesiaId;
+
+      const publicacionId =
+        event.params.publicacionId;
+
+      const autorNombre =
+        publicacion.autorNombre
+          ?.toString() ??
+        'Un miembro';
+
+      const autorUid =
+        publicacion.autorUid
+          ?.toString() ??
+        '';
+
+      const contenido =
+        publicacion.contenido
+          ?.toString() ??
+        '';
+
+      const tipo =
+        publicacion.tipo
+          ?.toString() ??
+        'publicacion';
+
       console.log(
-        `Fallaron ${respuesta.failureCount} notificaciones.`,
+        `Nueva publicación ${publicacionId} `
+        + `en iglesia ${iglesiaId}.`,
       );
 
-      respuesta.responses.forEach(
-        (resultado, index) => {
-          if (!resultado.success) {
-            console.log(
-              `Token ${index}: `
-              + `${resultado.error?.code ?? 'error desconocido'}`,
-            );
-          }
-        },
+      const destinos =
+        await obtenerDestinatarios(
+          iglesiaId,
+        );
+
+      if (
+        destinos.length === 0
+      ) {
+        console.log(
+          'No hay tokens FCM disponibles para esta iglesia.',
+        );
+        return;
+      }
+
+      let titulo =
+        'Nueva publicación';
+
+      if (tipo === 'aviso') {
+        titulo =
+          'Nuevo aviso';
+      }
+
+      if (
+        tipo === 'peticion'
+      ) {
+        titulo =
+          'Nueva petición';
+      }
+
+      const cuerpo =
+        contenido.length > 120
+          ? `${contenido.substring(
+              0,
+              117,
+            )}...`
+          : contenido;
+
+      const respuesta =
+        await getMessaging()
+          .sendEachForMulticast({
+            tokens:
+              destinos.map(
+                (destino) =>
+                  destino.token,
+              ),
+
+            notification: {
+              title:
+                `${titulo} · ${autorNombre}`,
+              body:
+                cuerpo ||
+                'Hay una nueva publicación en Comunidad.',
+            },
+
+            data: {
+              tipo:
+                'muro_comunidad',
+              iglesiaId,
+              publicacionId,
+              autorUid,
+            },
+
+            android: {
+              priority: 'high',
+            },
+
+            webpush: {
+              notification: {
+                icon:
+                  '/icons/Icon-192.png',
+                badge:
+                  '/icons/Icon-192.png',
+              },
+            },
+          });
+
+      console.log(
+        `Éxito: Se enviaron `
+        + `${respuesta.successCount} notificaciones.`,
       );
-    }
-  },
-);
+
+      if (
+        respuesta.failureCount >
+        0
+      ) {
+        console.log(
+          `Fallaron ${respuesta.failureCount} notificaciones.`,
+        );
+
+        const limpiezas = [];
+
+        respuesta.responses.forEach(
+          (
+            resultado,
+            index,
+          ) => {
+            if (
+              resultado.success
+            ) {
+              return;
+            }
+
+            const errorCode =
+              resultado.error
+                ?.code ??
+              'error desconocido';
+
+            console.log(
+              `Token ${index}: ${errorCode}`,
+            );
+
+            if (
+              tokenDebeEliminarse(
+                errorCode,
+              )
+            ) {
+              limpiezas.push(
+                limpiarTokenInvalido(
+                  destinos[index],
+                ),
+              );
+            }
+          },
+        );
+
+        await Promise.all(
+          limpiezas,
+        );
+      }
+    },
+  );

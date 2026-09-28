@@ -58,6 +58,31 @@ class NotificationService {
 
   bool get _soportaFcm => kIsWeb || _esAndroid || _esApple;
 
+  String get _plataforma {
+    if (kIsWeb) {
+      return 'web';
+    }
+
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return 'android';
+      case TargetPlatform.iOS:
+        return 'ios';
+      case TargetPlatform.macOS:
+        return 'macos';
+      case TargetPlatform.windows:
+        return 'windows';
+      case TargetPlatform.linux:
+        return 'linux';
+      default:
+        return 'desconocida';
+    }
+  }
+
+  String _idDispositivo(String token) {
+    return Uri.encodeComponent(token);
+  }
+
   Future<void> initialize() async {
     if (_inicializado) {
       return;
@@ -159,17 +184,24 @@ class NotificationService {
     }
 
     _tokenRefreshSubscription ??= _messaging.onTokenRefresh.listen((
-      token,
+      nuevoToken,
     ) async {
-      _tokenActual = token;
-
       final uid = _usuarioUid;
 
       if (uid == null) {
+        _tokenActual = nuevoToken;
         return;
       }
 
-      await _guardarToken(uid, token);
+      final tokenAnterior = _tokenActual;
+
+      if (tokenAnterior != null && tokenAnterior != nuevoToken) {
+        await _eliminarDispositivo(uid, tokenAnterior);
+      }
+
+      _tokenActual = nuevoToken;
+
+      await _guardarToken(uid, nuevoToken);
     });
   }
 
@@ -208,11 +240,60 @@ class NotificationService {
         return;
       }
 
+      final tokenAnterior = _tokenActual;
+
+      if (tokenAnterior != null && tokenAnterior != token) {
+        await _eliminarDispositivo(uid, tokenAnterior);
+      }
+
       _tokenActual = token;
 
       await _guardarToken(uid, token);
     } catch (error) {
       debugPrint('Error configurando FCM: $error');
+    }
+  }
+
+  Future<void> _guardarToken(String uid, String token) async {
+    final usuarioRef = FirebaseFirestore.instance
+        .collection('usuarios_globales')
+        .doc(uid);
+
+    final dispositivoRef = usuarioRef
+        .collection('dispositivos')
+        .doc(_idDispositivo(token));
+
+    final batch = FirebaseFirestore.instance.batch();
+
+    batch.set(usuarioRef, {
+      // Compatibilidad temporal con
+      // la implementación anterior.
+      'fcmToken': token,
+      'fcmTokenActualizado': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    batch.set(dispositivoRef, {
+      'token': token,
+      'plataforma': _plataforma,
+      'activo': true,
+      'actualizado': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    await batch.commit();
+
+    debugPrint('Token FCM registrado para $_plataforma.');
+  }
+
+  Future<void> _eliminarDispositivo(String uid, String token) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('usuarios_globales')
+          .doc(uid)
+          .collection('dispositivos')
+          .doc(_idDispositivo(token))
+          .delete();
+    } catch (error) {
+      debugPrint('No se pudo eliminar token anterior: $error');
     }
   }
 
@@ -228,16 +309,18 @@ class NotificationService {
     }
 
     try {
-      final ref = FirebaseFirestore.instance
+      final usuarioRef = FirebaseFirestore.instance
           .collection('usuarios_globales')
           .doc(uid);
 
-      final snapshot = await ref.get();
+      await _eliminarDispositivo(uid, token);
+
+      final snapshot = await usuarioRef.get();
 
       final data = snapshot.data();
 
       if (data?['fcmToken']?.toString() == token) {
-        await ref.update({
+        await usuarioRef.update({
           'fcmToken': FieldValue.delete(),
           'fcmTokenActualizado': FieldValue.delete(),
         });
@@ -247,18 +330,6 @@ class NotificationService {
     } catch (error) {
       debugPrint('Error desvinculando token FCM: $error');
     }
-  }
-
-  Future<void> _guardarToken(String uid, String token) async {
-    await FirebaseFirestore.instance
-        .collection('usuarios_globales')
-        .doc(uid)
-        .set({
-          'fcmToken': token,
-          'fcmTokenActualizado': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-
-    debugPrint('Token FCM guardado correctamente.');
   }
 
   Future<void> _onForegroundMessage(RemoteMessage message) async {
