@@ -325,7 +325,8 @@ exports.notificarNuevoMuro =
         'Nueva publicación';
 
       if (tipo === 'aviso') {
-        titulo = 'Nuevo aviso';
+        titulo =
+          'Nuevo aviso';
       }
 
       if (tipo === 'peticion') {
@@ -399,9 +400,9 @@ exports.notificarNuevoEventoAgenda =
         hora,
         lugar,
       ]
-          .where(
+          .filter(
             (valor) =>
-                valor.trim().isNotEmpty,
+              valor.trim().isNotEmpty,
           )
           .join(' · ');
 
@@ -411,11 +412,12 @@ exports.notificarNuevoEventoAgenda =
 
       await enviarNotificacionIglesia({
         iglesiaId,
-        titulo: 'Nuevo evento · $tituloEvento',
+        titulo:
+          `Nuevo evento · ${tituloEvento}`,
         cuerpo:
-            detalles.isNotEmpty
-                ? detalles
-                : 'Hay una nueva actividad en la agenda.',
+          detalles.isNotEmpty
+            ? detalles
+            : 'Hay una nueva actividad en la agenda.',
         data: {
           tipo: 'agenda',
           eventoId,
@@ -464,8 +466,8 @@ exports.notificarNuevoTurno =
           'Nuevo turno de servicio',
         cuerpo:
           fecha.isNotEmpty
-              ? '$tituloTurno · $fecha'
-              : tituloTurno,
+            ? `${tituloTurno} · ${fecha}`
+            : tituloTurno,
         data: {
           tipo: 'servidores',
           turnoId,
@@ -511,11 +513,11 @@ exports.notificarNuevoEventoAdora =
       await enviarNotificacionIglesia({
         iglesiaId,
         titulo:
-          'Adora Live · $tituloEvento',
+          `Adora Live · ${tituloEvento}`,
         cuerpo:
           tipoEvento.isNotEmpty
-              ? tipoEvento
-              : 'Hay un nuevo evento del equipo de alabanza.',
+            ? tipoEvento
+            : 'Hay un nuevo evento del equipo de alabanza.',
         data: {
           tipo: 'adora_live',
           eventoId,
