@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/models/app_models.dart';
+import '../../core/widgets/safe_avatar.dart';
 import 'servidores_models.dart';
 
 class ServidoresScreen extends StatefulWidget {
@@ -24,6 +25,20 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
       widget.usuario.rolGlobal == 'admin_iglesia' ||
       widget.usuario.rolGlobal == 'lider_area';
 
+  Color _surface(BuildContext context) => Theme.of(context).colorScheme.surface;
+
+  Color _onSurface(BuildContext context) =>
+      Theme.of(context).colorScheme.onSurface;
+
+  Color _onSurfaceVariant(BuildContext context) =>
+      Theme.of(context).colorScheme.onSurfaceVariant;
+
+  Color _border(BuildContext context) {
+    final oscuro = Theme.of(context).brightness == Brightness.dark;
+
+    return oscuro ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+  }
+
   Future<void> _abrirDialogoTurno(
     BuildContext context, {
     TurnoServicioModel? turnoExistente,
@@ -41,7 +56,7 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1A1D24),
+      backgroundColor: _surface(context),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -62,10 +77,10 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                   turnoExistente == null
                       ? 'Nuevo Turno de Servicio'
                       : 'Editar Turno',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: _onSurface(ctx),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -89,6 +104,7 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF3B82F6),
+                      foregroundColor: Colors.white,
                     ),
                     onPressed: () async {
                       if (tituloCtrl.text.trim().isEmpty) {
@@ -144,10 +160,7 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                       turnoExistente == null
                           ? 'Crear Turno'
                           : 'Guardar Cambios',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
@@ -166,23 +179,21 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1D24),
-        title: const Text(
-          '¿Eliminar evento?',
-          style: TextStyle(color: Colors.white),
-        ),
+        title: const Text('¿Eliminar evento?'),
         content: const Text(
           'Esta acción borrará el turno y todas sus asignaciones. '
           'No se puede deshacer.',
-          style: TextStyle(color: Color(0xFF94A3B8)),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+            child: const Text('Cancelar'),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () async {
               await _turnosRef.doc(turnoId).delete();
 
@@ -192,10 +203,7 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
 
               Navigator.pop(ctx);
             },
-            child: const Text(
-              'Eliminar',
-              style: TextStyle(color: Colors.white),
-            ),
+            child: const Text('Eliminar'),
           ),
         ],
       ),
@@ -212,7 +220,7 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1A1D24),
+      backgroundColor: _surface(context),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -229,12 +237,12 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Agregar Nuevo Puesto',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: _onSurface(ctx),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -258,6 +266,7 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF10B981),
+                      foregroundColor: Colors.white,
                     ),
                     onPressed: () async {
                       if (puestoCtrl.text.trim().isEmpty) {
@@ -288,10 +297,7 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                     },
                     child: const Text(
                       'Agregar Puesto',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
@@ -324,7 +330,7 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
   ) async {
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF1A1D24),
+      backgroundColor: _surface(context),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -343,12 +349,12 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
             }
 
             if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return const SizedBox(
+              return SizedBox(
                 height: 200,
                 child: Center(
                   child: Text(
                     'No hay miembros',
-                    style: TextStyle(color: Colors.white),
+                    style: TextStyle(color: _onSurfaceVariant(ctx)),
                   ),
                 ),
               );
@@ -367,10 +373,10 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                 children: [
                   Text(
                     'Asignar a: ${asig.puesto}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      color: _onSurface(ctx),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -388,41 +394,46 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
 
                         final rol = miembro['rolGlobal']?.toString() ?? '';
 
-                        return ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: const Color(0xFF334155),
-                            backgroundImage: fotoUrl.isNotEmpty
-                                ? NetworkImage(fotoUrl)
-                                : null,
-                            child: fotoUrl.isEmpty
-                                ? const Icon(Icons.person, color: Colors.white)
-                                : null,
-                          ),
-                          title: Text(
-                            nombre,
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                          subtitle: Text(
-                            rol,
-                            style: const TextStyle(
-                              color: Colors.grey,
-                              fontSize: 12,
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: ListTile(
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              leading: SafeAvatar(
+                                imageUrl: fotoUrl,
+                                nombre: nombre,
+                                radius: 20,
+                              ),
+                              title: Text(
+                                nombre,
+                                style: TextStyle(color: _onSurface(context)),
+                              ),
+                              subtitle: Text(
+                                rol,
+                                style: TextStyle(
+                                  color: _onSurfaceVariant(context),
+                                  fontSize: 12,
+                                ),
+                              ),
+                              onTap: () async {
+                                await _asignarVoluntario(
+                                  turno,
+                                  asig,
+                                  miembros[index].id,
+                                  nombre,
+                                );
+
+                                if (!ctx.mounted) {
+                                  return;
+                                }
+
+                                Navigator.pop(ctx);
+                              },
                             ),
                           ),
-                          onTap: () async {
-                            await _asignarVoluntario(
-                              turno,
-                              asig,
-                              miembros[index].id,
-                              nombre,
-                            );
-
-                            if (!ctx.mounted) {
-                              return;
-                            }
-
-                            Navigator.pop(ctx);
-                          },
                         );
                       },
                     ),
@@ -531,20 +542,26 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final oscuro = theme.brightness == Brightness.dark;
+
+    final surface = theme.colorScheme.surface;
+
+    final onSurface = theme.colorScheme.onSurface;
+
+    final secondary = theme.colorScheme.onSurfaceVariant;
+
+    final border = _border(context);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1115),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1D24),
-        title: const Text('Servidores & Protocolo'),
-      ),
+      appBar: AppBar(title: const Text('Servidores & Protocolo')),
       floatingActionButton: _esAdmin
           ? FloatingActionButton.extended(
               backgroundColor: const Color(0xFF3B82F6),
-              icon: const Icon(Icons.add, color: Colors.white),
-              label: const Text(
-                'Crear Turno',
-                style: TextStyle(color: Colors.white),
-              ),
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add),
+              label: const Text('Crear Turno'),
               onPressed: () {
                 _abrirDialogoTurno(context);
               },
@@ -558,19 +575,15 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
           }
 
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(
+            return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.handshake_outlined,
-                    size: 64,
-                    color: Color(0xFF334155),
-                  ),
-                  SizedBox(height: 12),
+                  Icon(Icons.handshake_outlined, size: 64, color: secondary),
+                  const SizedBox(height: 12),
                   Text(
                     'No hay turnos programados.',
-                    style: TextStyle(color: Color(0xFF94A3B8)),
+                    style: TextStyle(color: secondary),
                   ),
                 ],
               ),
@@ -597,10 +610,10 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                   .length;
 
               return Card(
-                color: const Color(0xFF1A1D24),
+                color: surface,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
-                  side: const BorderSide(color: Color(0xFF334155)),
+                  side: BorderSide(color: border),
                 ),
                 margin: const EdgeInsets.only(bottom: 16),
                 child: Padding(
@@ -617,10 +630,10 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                               children: [
                                 Text(
                                   turno.titulo,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.white,
+                                    color: onSurface,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -628,8 +641,8 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                                   '${turno.fecha.day}/'
                                   '${turno.fecha.month}/'
                                   '${turno.fecha.year}',
-                                  style: const TextStyle(
-                                    color: Color(0xFF94A3B8),
+                                  style: TextStyle(
+                                    color: secondary,
                                     fontSize: 13,
                                   ),
                                 ),
@@ -637,11 +650,8 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                             ),
                           ),
                           PopupMenuButton<String>(
-                            icon: const Icon(
-                              Icons.more_vert,
-                              color: Colors.grey,
-                            ),
-                            color: const Color(0xFF0F1115),
+                            icon: Icon(Icons.more_vert, color: secondary),
+                            color: surface,
                             onSelected: (value) {
                               if (value == 'share') {
                                 _compartirPorWhatsApp(turno);
@@ -659,37 +669,37 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                               }
                             },
                             itemBuilder: (context) => [
-                              const PopupMenuItem(
+                              PopupMenuItem(
                                 value: 'share',
                                 child: Row(
                                   children: [
-                                    Icon(
+                                    const Icon(
                                       Icons.share,
                                       color: Color(0xFF25D366),
                                       size: 18,
                                     ),
-                                    SizedBox(width: 8),
+                                    const SizedBox(width: 8),
                                     Text(
                                       'Compartir',
-                                      style: TextStyle(color: Colors.white),
+                                      style: TextStyle(color: onSurface),
                                     ),
                                   ],
                                 ),
                               ),
                               if (_esAdmin)
-                                const PopupMenuItem(
+                                PopupMenuItem(
                                   value: 'edit',
                                   child: Row(
                                     children: [
                                       Icon(
                                         Icons.edit,
-                                        color: Colors.white70,
+                                        color: secondary,
                                         size: 18,
                                       ),
-                                      SizedBox(width: 8),
+                                      const SizedBox(width: 8),
                                       Text(
                                         'Editar fecha/título',
-                                        style: TextStyle(color: Colors.white),
+                                        style: TextStyle(color: onSurface),
                                       ),
                                     ],
                                   ),
@@ -718,14 +728,18 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                           ),
                         ],
                       ),
+
                       const SizedBox(height: 12),
+
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 10,
                           vertical: 6,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.05),
+                          color: oscuro
+                              ? Colors.white.withValues(alpha: 0.05)
+                              : const Color(0xFFF1F5F9),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Row(
@@ -736,23 +750,22 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                                   ? Icons.check_circle
                                   : Icons.schedule,
                               color: confirmados == total
-                                  ? Colors.greenAccent
-                                  : Colors.amberAccent,
+                                  ? Colors.green
+                                  : Colors.orange,
                               size: 16,
                             ),
                             const SizedBox(width: 6),
                             Text(
                               'Confirmados: '
                               '$confirmados / $total',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.white70,
-                              ),
+                              style: TextStyle(fontSize: 12, color: secondary),
                             ),
                           ],
                         ),
                       ),
-                      const Divider(color: Color(0xFF334155), height: 24),
+
+                      Divider(color: border, height: 24),
+
                       ...turno.asignaciones.map((asig) {
                         final esMiTurno = asig.usuarioUid == widget.usuario.uid;
 
@@ -799,19 +812,19 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                                           Flexible(
                                             child: Text(
                                               asig.puesto,
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                 fontWeight: FontWeight.bold,
-                                                color: Colors.white,
+                                                color: onSurface,
                                               ),
                                               overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
                                           if (_esAdmin) ...[
                                             const SizedBox(width: 6),
-                                            const Icon(
+                                            Icon(
                                               Icons.edit,
                                               size: 12,
-                                              color: Colors.grey,
+                                              color: secondary,
                                             ),
                                             const SizedBox(width: 8),
                                             GestureDetector(
@@ -830,14 +843,15 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                                       Text(
                                         '${asig.nombreUsuario} '
                                         '(${asig.area})',
-                                        style: const TextStyle(
-                                          color: Color(0xFF94A3B8),
+                                        style: TextStyle(
+                                          color: secondary,
                                           fontSize: 12,
                                         ),
                                       ),
                                     ],
                                   ),
                                 ),
+
                                 if (puedoEditar &&
                                     asig.estado == 'pendiente' &&
                                     asig.usuarioUid.isNotEmpty)
@@ -847,7 +861,7 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                                       IconButton(
                                         icon: const Icon(
                                           Icons.check_circle,
-                                          color: Colors.greenAccent,
+                                          color: Colors.green,
                                         ),
                                         tooltip: 'Confirmar',
                                         onPressed: () {
@@ -919,6 +933,7 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
                           ),
                         );
                       }),
+
                       if (_esAdmin)
                         Padding(
                           padding: const EdgeInsets.only(top: 8),

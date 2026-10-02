@@ -40,11 +40,13 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1A1D24),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
+        final theme = Theme.of(ctx);
+
         return Padding(
           padding: EdgeInsets.only(
             left: 20,
@@ -59,8 +61,8 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
               children: [
                 Text(
                   cancion == null ? 'Nueva Canción' : 'Editar Canción',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurface,
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
                   ),
@@ -105,7 +107,9 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                   minLines: 2,
                   maxLines: 5,
                   decoration: const InputDecoration(
-                    labelText: 'Links de Tutoriales (Uno por línea)',
+                    labelText:
+                        'Links de Tutoriales '
+                        '(uno por línea)',
                     alignLabelWithHint: true,
                     hintText:
                         'Guitarra: https://youtube.com/...\n'
@@ -171,9 +175,9 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
 
                       Navigator.pop(ctx);
                     },
-                    child: Text(
-                      cancion == null ? 'Guardar Canción' : 'Guardar Canción',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    child: const Text(
+                      'Guardar Canción',
+                      style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
@@ -198,14 +202,11 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
           context: context,
           builder: (ctx) {
             return AlertDialog(
-              backgroundColor: const Color(0xFF1A1D24),
-              title: const Text(
-                'Eliminar canción',
-                style: TextStyle(color: Colors.white),
-              ),
+              title: const Text('Eliminar canción'),
               content: Text(
-                '¿Deseas eliminar "${cancion.titulo}" del repertorio?',
-                style: const TextStyle(color: Color(0xFF94A3B8)),
+                '¿Deseas eliminar '
+                '"${cancion.titulo}" '
+                'del repertorio?',
               ),
               actions: [
                 TextButton(
@@ -276,8 +277,19 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final oscuro = theme.brightness == Brightness.dark;
+
+    final surface = theme.colorScheme.surface;
+
+    final onSurface = theme.colorScheme.onSurface;
+
+    final secondary = theme.colorScheme.onSurfaceVariant;
+
+    final border = oscuro ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1115),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -286,12 +298,12 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
+                Text(
                   'Repertorio General',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: onSurface,
                   ),
                 ),
                 if (_puedeGestionar)
@@ -332,19 +344,22 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                 }
 
                 final canciones =
-                    snapshot.data?.docs.map((doc) {
-                      return AdoraCancionModel.fromMap(
-                        doc.data() as Map<String, dynamic>,
-                        doc.id,
-                      );
-                    }).toList() ??
+                    snapshot.data?.docs
+                        .map(
+                          (doc) => AdoraCancionModel.fromMap(
+                            doc.data() as Map<String, dynamic>,
+                            doc.id,
+                          ),
+                        )
+                        .toList() ??
                     [];
 
                 if (canciones.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Text(
-                      'No hay canciones en el repertorio.',
-                      style: TextStyle(color: Color(0xFF94A3B8)),
+                      'No hay canciones '
+                      'en el repertorio.',
+                      style: TextStyle(color: secondary),
                     ),
                   );
                 }
@@ -358,11 +373,11 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                     final descripcion = _descripcionCancion(cancion);
 
                     return Card(
-                      color: const Color(0xFF1A1D24),
+                      color: surface,
                       margin: const EdgeInsets.only(bottom: 12),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
-                        side: const BorderSide(color: Color(0xFF334155)),
+                        side: BorderSide(color: border),
                       ),
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(
@@ -374,13 +389,13 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                               .withValues(alpha: 0.18),
                           child: const Icon(
                             Icons.music_note,
-                            color: Color(0xFF60A5FA),
+                            color: Color(0xFF3B82F6),
                           ),
                         ),
                         title: Text(
                           cancion.titulo,
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: onSurface,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -388,11 +403,11 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                           descripcion.isEmpty
                               ? 'Sin información adicional'
                               : descripcion,
-                          style: const TextStyle(color: Color(0xFFCBD5E1)),
+                          style: TextStyle(color: secondary),
                         ),
                         trailing: _puedeGestionar
                             ? PopupMenuButton<String>(
-                                color: const Color(0xFF1A1D24),
+                                color: surface,
                                 onSelected: (value) {
                                   if (value == 'editar') {
                                     _abrirEditor(cancion: cancion);
@@ -416,7 +431,7 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                                   ),
                                 ],
                               )
-                            : const Icon(Icons.play_arrow, color: Colors.grey),
+                            : Icon(Icons.play_arrow, color: secondary),
                         onTap: () {
                           _abrirCancion(cancion);
                         },

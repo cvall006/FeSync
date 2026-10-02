@@ -57,6 +57,18 @@ class AdoraInicioScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final oscuro = theme.brightness == Brightness.dark;
+
+    final surface = theme.colorScheme.surface;
+
+    final onSurface = theme.colorScheme.onSurface;
+
+    final secondary = theme.colorScheme.onSurfaceVariant;
+
+    final border = oscuro ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -67,16 +79,16 @@ class AdoraInicioScreen extends StatelessWidget {
             children: [
               Text(
                 'Hola, ${usuario.nombre}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 30,
                   fontWeight: FontWeight.bold,
-                  color: Colors.white,
+                  color: onSurface,
                 ),
               ),
               const SizedBox(height: 4),
-              const Text(
+              Text(
                 'Bienvenido a tu panel de Adora Live',
-                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 16),
+                style: TextStyle(color: secondary, fontSize: 16),
               ),
             ],
           ),
@@ -88,7 +100,7 @@ class AdoraInicioScreen extends StatelessWidget {
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: Color(0xFF60A5FA),
+              color: Color(0xFF3B82F6),
             ),
           ),
         ),
@@ -134,15 +146,19 @@ class AdoraInicioScreen extends StatelessWidget {
                   child: Align(
                     alignment: Alignment.topCenter,
                     child: Card(
-                      color: const Color(0xFF1A1D24),
-                      child: const Padding(
-                        padding: EdgeInsets.all(24),
+                      color: surface,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        side: BorderSide(color: border),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
                         child: SizedBox(
                           width: double.infinity,
                           child: Text(
                             'No hay eventos próximos agendados.',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Color(0xFF94A3B8)),
+                            style: TextStyle(color: secondary),
                           ),
                         ),
                       ),
@@ -156,7 +172,8 @@ class AdoraInicioScreen extends StatelessWidget {
               return SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Card(
-                  color: const Color(0xFF3B82F6).withValues(alpha: 0.14),
+                  color: const Color(0xFF3B82F6)
+                      .withValues(alpha: oscuro ? 0.14 : 0.08),
                   elevation: 0,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
@@ -205,10 +222,10 @@ class AdoraInicioScreen extends StatelessWidget {
                             children: [
                               Text(
                                 evento.titulo,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                  color: onSurface,
                                 ),
                               ),
                               if (evento.tipo.isNotEmpty) ...[
@@ -216,26 +233,24 @@ class AdoraInicioScreen extends StatelessWidget {
                                 Text(
                                   evento.tipo,
                                   style: const TextStyle(
-                                    color: Color(0xFF60A5FA),
+                                    color: Color(0xFF3B82F6),
                                   ),
                                 ),
                               ],
                               const SizedBox(height: 8),
                               Row(
                                 children: [
-                                  const Icon(
+                                  Icon(
                                     Icons.access_time,
                                     size: 15,
-                                    color: Color(0xFF94A3B8),
+                                    color: secondary,
                                   ),
                                   const SizedBox(width: 5),
                                   Expanded(
                                     child: Text(
                                       '${_diaSemana(evento.fechaHora)}'
                                       ' - ${_hora(evento.fechaHora)}',
-                                      style: const TextStyle(
-                                        color: Color(0xFF94A3B8),
-                                      ),
+                                      style: TextStyle(color: secondary),
                                     ),
                                   ),
                                 ],
@@ -244,8 +259,8 @@ class AdoraInicioScreen extends StatelessWidget {
                               Text(
                                 '${evento.cancionesIds.length} canciones · '
                                 '${evento.asistentesUids.length} confirmados',
-                                style: const TextStyle(
-                                  color: Color(0xFF94A3B8),
+                                style: TextStyle(
+                                  color: secondary,
                                   fontSize: 12,
                                 ),
                               ),

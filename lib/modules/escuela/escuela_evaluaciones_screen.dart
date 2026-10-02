@@ -87,13 +87,21 @@ class _EscuelaEvaluacionesScreenState extends State<EscuelaEvaluacionesScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1A1D24),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            final theme = Theme.of(context);
+
+            final oscuro = theme.brightness == Brightness.dark;
+
+            final border = oscuro
+                ? const Color(0xFF334155)
+                : const Color(0xFFE2E8F0);
+
             return Padding(
               padding: EdgeInsets.only(
                 left: 20,
@@ -108,13 +116,15 @@ class _EscuelaEvaluacionesScreenState extends State<EscuelaEvaluacionesScreen> {
                   children: [
                     Text(
                       'Evaluando a: $nombre',
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurface,
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+
                     const SizedBox(height: 8),
+
                     Text(
                       widget.modulo.titulo,
                       style: const TextStyle(
@@ -122,16 +132,20 @@ class _EscuelaEvaluacionesScreenState extends State<EscuelaEvaluacionesScreen> {
                         fontSize: 17,
                       ),
                     ),
-                    const Divider(height: 36, color: Color(0xFF334155)),
-                    const Text(
+
+                    Divider(height: 36, color: border),
+
+                    Text(
                       'Asistencia por Clase',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: theme.colorScheme.onSurface,
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+
                     const SizedBox(height: 12),
+
                     ...widget.modulo.clases.map((clase) {
                       return CheckboxListTile(
                         contentPadding: EdgeInsets.zero,
@@ -140,7 +154,9 @@ class _EscuelaEvaluacionesScreenState extends State<EscuelaEvaluacionesScreen> {
                         checkColor: Colors.white,
                         title: Text(
                           clase.titulo,
-                          style: const TextStyle(color: Color(0xFFCBD5E1)),
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
                         ),
                         onChanged: (value) {
                           setModalState(() {
@@ -149,16 +165,20 @@ class _EscuelaEvaluacionesScreenState extends State<EscuelaEvaluacionesScreen> {
                         },
                       );
                     }),
-                    const Divider(height: 36, color: Color(0xFF334155)),
-                    const Text(
+
+                    Divider(height: 36, color: border),
+
+                    Text(
                       'Calificación Final',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: theme.colorScheme.onSurface,
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+
                     const SizedBox(height: 16),
+
                     Row(
                       children: [
                         Expanded(
@@ -173,7 +193,9 @@ class _EscuelaEvaluacionesScreenState extends State<EscuelaEvaluacionesScreen> {
                             ),
                           ),
                         ),
+
                         const SizedBox(width: 12),
+
                         Expanded(
                           flex: 2,
                           child: TextField(
@@ -186,7 +208,9 @@ class _EscuelaEvaluacionesScreenState extends State<EscuelaEvaluacionesScreen> {
                         ),
                       ],
                     ),
+
                     const SizedBox(height: 26),
+
                     SizedBox(
                       width: double.infinity,
                       height: 52,
@@ -240,16 +264,26 @@ class _EscuelaEvaluacionesScreenState extends State<EscuelaEvaluacionesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final oscuro = theme.brightness == Brightness.dark;
+
+    final surface = theme.colorScheme.surface;
+
+    final onSurface = theme.colorScheme.onSurface;
+
+    final secondary = theme.colorScheme.onSurfaceVariant;
+
+    final border = oscuro ? const Color(0xFF26313D) : const Color(0xFFE2E8F0);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1115),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0F1115),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Asistencia y Notas',
-              style: TextStyle(color: Colors.white, fontSize: 18),
+              style: TextStyle(color: onSurface, fontSize: 18),
             ),
             Text(
               widget.modulo.titulo,
@@ -281,10 +315,10 @@ class _EscuelaEvaluacionesScreenState extends State<EscuelaEvaluacionesScreen> {
           final usuarios = usuariosSnapshot.data?.docs ?? [];
 
           if (usuarios.isEmpty) {
-            return const Center(
+            return Center(
               child: Text(
                 'No hay miembros registrados.',
-                style: TextStyle(color: Color(0xFF94A3B8)),
+                style: TextStyle(color: secondary),
               ),
             );
           }
@@ -295,6 +329,17 @@ class _EscuelaEvaluacionesScreenState extends State<EscuelaEvaluacionesScreen> {
               if (evaluacionesSnapshot.connectionState ==
                   ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
+              }
+
+              if (evaluacionesSnapshot.hasError) {
+                return Center(
+                  child: Text(
+                    'No fue posible cargar las evaluaciones.\n'
+                    '${evaluacionesSnapshot.error}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.redAccent),
+                  ),
+                );
               }
 
               final evaluaciones = evaluacionesSnapshot.data?.docs ?? [];
@@ -341,11 +386,11 @@ class _EscuelaEvaluacionesScreenState extends State<EscuelaEvaluacionesScreen> {
                   final nota = evaluacion?['notaFinal']?.toString() ?? '';
 
                   return Card(
-                    color: const Color(0xFF11151A),
+                    color: surface,
                     margin: const EdgeInsets.only(bottom: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(18),
-                      side: const BorderSide(color: Color(0xFF26313D)),
+                      side: BorderSide(color: border),
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(18),
@@ -357,13 +402,15 @@ class _EscuelaEvaluacionesScreenState extends State<EscuelaEvaluacionesScreen> {
                               children: [
                                 Text(
                                   nombre,
-                                  style: const TextStyle(
-                                    color: Colors.white,
+                                  style: TextStyle(
+                                    color: onSurface,
                                     fontSize: 19,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
+
                                 const SizedBox(height: 14),
+
                                 Wrap(
                                   spacing: 18,
                                   runSpacing: 8,
@@ -371,22 +418,21 @@ class _EscuelaEvaluacionesScreenState extends State<EscuelaEvaluacionesScreen> {
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        const Icon(
+                                        Icon(
                                           Icons.event_available,
                                           size: 18,
-                                          color: Color(0xFF94A3B8),
+                                          color: secondary,
                                         ),
                                         const SizedBox(width: 6),
                                         Text(
                                           'Asistencia: '
                                           '$asistencias/$totalClases '
                                           '($porcentaje%)',
-                                          style: const TextStyle(
-                                            color: Color(0xFF94A3B8),
-                                          ),
+                                          style: TextStyle(color: secondary),
                                         ),
                                       ],
                                     ),
+
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
@@ -397,7 +443,8 @@ class _EscuelaEvaluacionesScreenState extends State<EscuelaEvaluacionesScreen> {
                                         ),
                                         const SizedBox(width: 6),
                                         Text(
-                                          'Nota: ${nota.isEmpty ? "-" : nota}',
+                                          'Nota: '
+                                          '${nota.isEmpty ? "-" : nota}',
                                           style: const TextStyle(
                                             color: Color(0xFFF59E0B),
                                             fontWeight: FontWeight.bold,
@@ -407,15 +454,33 @@ class _EscuelaEvaluacionesScreenState extends State<EscuelaEvaluacionesScreen> {
                                     ),
                                   ],
                                 ),
+
+                                if ((evaluacion?['observaciones']?.toString() ??
+                                        '')
+                                    .isNotEmpty) ...[
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    evaluacion!['observaciones'].toString(),
+                                    style: TextStyle(
+                                      color: secondary,
+                                      fontSize: 12,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
+
                           const SizedBox(width: 12),
+
                           if (_esAdmin)
                             ElevatedButton(
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF1E293B),
-                                foregroundColor: Colors.white,
+                                backgroundColor: oscuro
+                                    ? const Color(0xFF1E293B)
+                                    : const Color(0xFFF1F5F9),
+                                foregroundColor: onSurface,
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 24,
                                   vertical: 16,

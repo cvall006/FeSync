@@ -41,24 +41,31 @@ class ConfiguracionModulosScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final oscuro = theme.brightness == Brightness.dark;
+
+    final surface = theme.colorScheme.surface;
+
+    final onSurface = theme.colorScheme.onSurface;
+
+    final secondary = theme.colorScheme.onSurfaceVariant;
+
+    final border = oscuro ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+
     if (usuario.rolGlobal != 'admin_iglesia') {
-      return const Scaffold(
-        backgroundColor: Color(0xFF0F1115),
+      return Scaffold(
         body: Center(
           child: Text(
             'No tienes permisos para modificar los módulos.',
-            style: TextStyle(color: Color(0xFF94A3B8)),
+            style: TextStyle(color: secondary),
           ),
         ),
       );
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1115),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1D24),
-        title: const Text('Configuración de Módulos'),
-      ),
+      appBar: AppBar(title: const Text('Configuración de Módulos')),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: _iglesiaRef.snapshots(),
         builder: (context, snapshot) {
@@ -81,10 +88,10 @@ class ConfiguracionModulosScreen extends StatelessWidget {
           }
 
           if (!snapshot.hasData || !snapshot.data!.exists) {
-            return const Center(
+            return Center(
               child: Text(
                 'No se encontró la iglesia.',
-                style: TextStyle(color: Color(0xFF94A3B8)),
+                style: TextStyle(color: secondary),
               ),
             );
           }
@@ -100,20 +107,23 @@ class ConfiguracionModulosScreen extends StatelessWidget {
           return ListView(
             padding: const EdgeInsets.all(20),
             children: [
-              const Text(
+              Text(
                 'Módulos Congregacionales',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: onSurface,
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
                 ),
               ),
+
               const SizedBox(height: 8),
-              const Text(
+
+              Text(
                 'Activa o desactiva los módulos que estarán disponibles '
                 'para los usuarios de esta iglesia.',
-                style: TextStyle(color: Color(0xFF94A3B8), height: 1.4),
+                style: TextStyle(color: secondary, height: 1.4),
               ),
+
               const SizedBox(height: 24),
 
               _ModuloSwitch(
@@ -188,21 +198,21 @@ class ConfiguracionModulosScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1A1D24),
+                  color: surface,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFF334155)),
+                  border: Border.all(color: border),
                 ),
-                child: const Row(
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.info_outline, color: Color(0xFF60A5FA)),
-                    SizedBox(width: 12),
+                    const Icon(Icons.info_outline, color: Color(0xFF3B82F6)),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         'Los cambios se aplican automáticamente. '
                         'Desactivar un módulo no elimina sus datos; '
                         'solo deja de mostrarlo en el Dashboard.',
-                        style: TextStyle(color: Color(0xFFCBD5E1), height: 1.4),
+                        style: TextStyle(color: secondary, height: 1.4),
                       ),
                     ),
                   ],
@@ -235,25 +245,37 @@ class _ModuloSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final oscuro = theme.brightness == Brightness.dark;
+
+    final surface = theme.colorScheme.surface;
+
+    final onSurface = theme.colorScheme.onSurface;
+
+    final secondary = theme.colorScheme.onSurfaceVariant;
+
+    final border = oscuro ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1D24),
+        color: surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: activo
-              ? color.withValues(alpha: 0.45)
-              : const Color(0xFF334155),
+          color: activo ? color.withValues(alpha: 0.45) : border,
         ),
       ),
       child: Row(
         children: [
           CircleAvatar(
             backgroundColor: color.withValues(alpha: 0.15),
-            child: Icon(icono, color: activo ? color : Colors.grey),
+            child: Icon(icono, color: activo ? color : secondary),
           ),
+
           const SizedBox(width: 14),
+
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -261,7 +283,7 @@ class _ModuloSwitch extends StatelessWidget {
                 Text(
                   titulo,
                   style: TextStyle(
-                    color: activo ? Colors.white : Colors.grey,
+                    color: activo ? onSurface : secondary,
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                   ),
@@ -269,14 +291,12 @@ class _ModuloSwitch extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   descripcion,
-                  style: const TextStyle(
-                    color: Color(0xFF94A3B8),
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(color: secondary, fontSize: 12),
                 ),
               ],
             ),
           ),
+
           Switch(
             value: activo,
             onChanged: onChanged,

@@ -24,6 +24,7 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _esLogin = true;
   bool _creandoIglesia = false;
   bool _cargando = false;
+
   String? _error;
 
   @override
@@ -33,6 +34,7 @@ class _AuthScreenState extends State<AuthScreen> {
     _nombreCtrl.dispose();
     _codigoCtrl.dispose();
     _iglesiaCtrl.dispose();
+
     super.dispose();
   }
 
@@ -141,8 +143,19 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final oscuro = theme.brightness == Brightness.dark;
+
+    final surface = theme.colorScheme.surface;
+
+    final onSurface = theme.colorScheme.onSurface;
+
+    final secondary = theme.colorScheme.onSurfaceVariant;
+
+    final border = oscuro ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1115),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -150,38 +163,43 @@ class _AuthScreenState extends State<AuthScreen> {
             constraints: const BoxConstraints(maxWidth: 420),
             padding: const EdgeInsets.all(32),
             decoration: BoxDecoration(
-              color: const Color(0xFF1A1D24),
+              color: surface,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: border),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Icon(Icons.sync, size: 54, color: Color(0xFF3B82F6)),
+
                 const SizedBox(height: 8),
-                const Text(
+
+                Text(
                   'FeSync',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: onSurface,
                   ),
                 ),
+
+                const SizedBox(height: 4),
+
                 Text(
                   _esLogin
                       ? 'Inicia sesión para continuar'
                       : (_creandoIglesia
                             ? 'Registra tu congregación'
                             : 'Únete a tu iglesia'),
-                  style: const TextStyle(
-                    color: Color(0xFF94A3B8),
-                    fontSize: 14,
-                  ),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: secondary, fontSize: 14),
                 ),
+
                 const SizedBox(height: 24),
 
                 if (_error != null) ...[
                   Container(
+                    width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: Colors.redAccent.withValues(alpha: 0.1),
@@ -204,6 +222,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 if (!_esLogin) ...[
                   TextField(
                     controller: _nombreCtrl,
+                    textCapitalization: TextCapitalization.words,
                     decoration: const InputDecoration(
                       labelText: 'Tu Nombre y Apellido',
                       prefixIcon: Icon(Icons.person),
@@ -215,6 +234,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 if (!_esLogin && _creandoIglesia) ...[
                   TextField(
                     controller: _iglesiaCtrl,
+                    textCapitalization: TextCapitalization.words,
                     decoration: const InputDecoration(
                       labelText: 'Nombre de la Iglesia',
                       prefixIcon: Icon(Icons.church),
@@ -232,6 +252,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     prefixIcon: Icon(Icons.email),
                   ),
                 ),
+
                 const SizedBox(height: 12),
 
                 TextField(
@@ -243,6 +264,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     prefixIcon: Icon(Icons.lock),
                   ),
                 ),
+
                 const SizedBox(height: 12),
 
                 if (!_esLogin) ...[
@@ -274,7 +296,14 @@ class _AuthScreenState extends State<AuthScreen> {
                     ),
                     onPressed: _cargando ? null : _ejecutarAccion,
                     child: _cargando
-                        ? const CircularProgressIndicator(color: Colors.white)
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
                         : Text(
                             _esLogin ? 'Ingresar' : 'Registrarme',
                             style: const TextStyle(
@@ -287,20 +316,17 @@ class _AuthScreenState extends State<AuthScreen> {
 
                 const SizedBox(height: 16),
 
-                const Row(
+                Row(
                   children: [
-                    Expanded(child: Divider(color: Color(0xFF334155))),
+                    Expanded(child: Divider(color: border)),
                     Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
                       child: Text(
                         'o continúa con',
-                        style: TextStyle(
-                          color: Color(0xFF94A3B8),
-                          fontSize: 12,
-                        ),
+                        style: TextStyle(color: secondary, fontSize: 12),
                       ),
                     ),
-                    Expanded(child: Divider(color: Color(0xFF334155))),
+                    Expanded(child: Divider(color: border)),
                   ],
                 ),
 
@@ -350,7 +376,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     _esLogin
                         ? '¿No tienes cuenta? Regístrate aquí'
                         : '¿Ya tienes cuenta? Inicia sesión',
-                    style: const TextStyle(color: Color(0xFF60A5FA)),
+                    style: const TextStyle(color: Color(0xFF3B82F6)),
                   ),
                 ),
 
@@ -361,6 +387,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         : () {
                             setState(() {
                               _creandoIglesia = !_creandoIglesia;
+
                               _error = null;
                             });
                           },
@@ -368,10 +395,8 @@ class _AuthScreenState extends State<AuthScreen> {
                       _creandoIglesia
                           ? '¿Deseas unirte a una iglesia existente?'
                           : '¿Eres pastor? Registra una nueva iglesia',
-                      style: const TextStyle(
-                        color: Color(0xFF94A3B8),
-                        fontSize: 12,
-                      ),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: secondary, fontSize: 12),
                     ),
                   ),
               ],

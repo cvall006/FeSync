@@ -31,6 +31,7 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
   @override
   void dispose() {
     _buscarCtrl.dispose();
+
     super.dispose();
   }
 
@@ -57,16 +58,19 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
       final segmentos = uri.pathSegments;
 
       final liveIndex = segmentos.indexOf('live');
+
       if (liveIndex != -1 && liveIndex + 1 < segmentos.length) {
         return segmentos[liveIndex + 1];
       }
 
       final shortsIndex = segmentos.indexOf('shorts');
+
       if (shortsIndex != -1 && shortsIndex + 1 < segmentos.length) {
         return segmentos[shortsIndex + 1];
       }
 
       final embedIndex = segmentos.indexOf('embed');
+
       if (embedIndex != -1 && embedIndex + 1 < segmentos.length) {
         return segmentos[embedIndex + 1];
       }
@@ -115,13 +119,15 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1A1D24),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            final theme = Theme.of(context);
+
             return Padding(
               padding: EdgeInsets.only(
                 left: 20,
@@ -138,16 +144,17 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
                       existente == null
                           ? 'Nueva Capacitación'
                           : 'Editar Capacitación',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: theme.colorScheme.onSurface,
                       ),
                     ),
+
                     const SizedBox(height: 20),
+
                     DropdownButtonFormField<String>(
                       initialValue: tipoSeleccionado,
-                      dropdownColor: const Color(0xFF1A1D24),
                       decoration: const InputDecoration(
                         labelText: 'Tipo de capacitación',
                       ),
@@ -171,20 +178,28 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
                         });
                       },
                     ),
+
                     const SizedBox(height: 14),
+
                     TextField(
                       controller: tituloCtrl,
+                      textCapitalization: TextCapitalization.sentences,
                       decoration: const InputDecoration(labelText: 'Título'),
                     ),
+
                     const SizedBox(height: 14),
+
                     TextField(
                       controller: descripcionCtrl,
                       maxLines: 2,
+                      textCapitalization: TextCapitalization.sentences,
                       decoration: const InputDecoration(
                         labelText: 'Breve descripción (subtítulo)',
                       ),
                     ),
+
                     const SizedBox(height: 14),
+
                     if (tipoSeleccionado == 'video')
                       TextField(
                         controller: linkCtrl,
@@ -199,12 +214,15 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
                         controller: contenidoCtrl,
                         minLines: 5,
                         maxLines: 12,
+                        textCapitalization: TextCapitalization.sentences,
                         decoration: const InputDecoration(
                           labelText: 'Contenido de la lectura / reflexión',
                           alignLabelWithHint: true,
                         ),
                       ),
+
                     const SizedBox(height: 24),
+
                     SizedBox(
                       width: double.infinity,
                       height: 50,
@@ -290,14 +308,10 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
           context: context,
           builder: (ctx) {
             return AlertDialog(
-              backgroundColor: const Color(0xFF1A1D24),
-              title: const Text(
-                'Eliminar capacitación',
-                style: TextStyle(color: Colors.white),
-              ),
+              title: const Text('Eliminar capacitación'),
               content: Text(
-                '¿Deseas eliminar "${capacitacion.titulo}"?',
-                style: const TextStyle(color: Color(0xFF94A3B8)),
+                '¿Deseas eliminar '
+                '"${capacitacion.titulo}"?',
               ),
               actions: [
                 TextButton(
@@ -331,25 +345,30 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
   void _abrirCapacitacion(CapacitacionModel capacitacion) {
     if (capacitacion.esVideo) {
       _abrirVideo(capacitacion.linkVideo);
+
       return;
     }
 
     showDialog<void>(
       context: context,
       builder: (ctx) {
+        final theme = Theme.of(ctx);
+
         return AlertDialog(
-          backgroundColor: const Color(0xFF1A1D24),
           title: Text(
             capacitacion.titulo,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: theme.colorScheme.onSurface,
               fontWeight: FontWeight.bold,
             ),
           ),
           content: SingleChildScrollView(
             child: Text(
               capacitacion.contenido,
-              style: const TextStyle(color: Color(0xFFCBD5E1), height: 1.5),
+              style: TextStyle(
+                color: theme.colorScheme.onSurfaceVariant,
+                height: 1.5,
+              ),
             ),
           ),
           actions: [
@@ -367,10 +386,22 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final oscuro = theme.brightness == Brightness.dark;
+
+    final surface = theme.colorScheme.surface;
+
+    final onSurface = theme.colorScheme.onSurface;
+
+    final secondary = theme.colorScheme.onSurfaceVariant;
+
+    final border = oscuro ? const Color(0xFF26313D) : const Color(0xFFE2E8F0);
+
+    final searchBackground = oscuro ? const Color(0xFF11151A) : Colors.white;
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1115),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0F1115),
         title: const Text(
           'Capacitaciones',
           style: TextStyle(fontWeight: FontWeight.bold),
@@ -380,10 +411,11 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
       floatingActionButton: _esAdmin
           ? FloatingActionButton(
               backgroundColor: const Color(0xFF06B6D4),
+              foregroundColor: Colors.white,
               onPressed: () {
                 _abrirEditor();
               },
-              child: const Icon(Icons.add, color: Colors.white),
+              child: const Icon(Icons.add),
             )
           : null,
       body: Column(
@@ -401,18 +433,23 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
                 hintText: 'Buscar por título o tema...',
                 prefixIcon: const Icon(Icons.search),
                 filled: true,
-                fillColor: const Color(0xFF11151A),
+                fillColor: searchBackground,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
-                  borderSide: const BorderSide(color: Color(0xFF26313D)),
+                  borderSide: BorderSide(color: border),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
-                  borderSide: const BorderSide(color: Color(0xFF26313D)),
+                  borderSide: BorderSide(color: border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: const BorderSide(color: Color(0xFF06B6D4)),
                 ),
               ),
             ),
           ),
+
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: _capacitacionesRef
@@ -439,12 +476,12 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
 
                 final capacitaciones =
                     snapshot.data?.docs
-                        .map((doc) {
-                          return CapacitacionModel.fromMap(
+                        .map(
+                          (doc) => CapacitacionModel.fromMap(
                             doc.data() as Map<String, dynamic>,
                             doc.id,
-                          );
-                        })
+                          ),
+                        )
                         .where((capacitacion) {
                           if (_busqueda.isEmpty) {
                             return true;
@@ -464,10 +501,12 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
                     [];
 
                 if (capacitaciones.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Text(
-                      'No hay capacitaciones disponibles.',
-                      style: TextStyle(color: Color(0xFF94A3B8)),
+                      _busqueda.isEmpty
+                          ? 'No hay capacitaciones disponibles.'
+                          : 'No se encontraron resultados.',
+                      style: TextStyle(color: secondary),
                     ),
                   );
                 }
@@ -484,10 +523,10 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
 
                     return Card(
                       margin: const EdgeInsets.only(bottom: 16),
-                      color: const Color(0xFF11151A),
+                      color: surface,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(18),
-                        side: const BorderSide(color: Color(0xFF26313D)),
+                        side: BorderSide(color: border),
                       ),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(18),
@@ -504,7 +543,9 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
                                 height: 82,
                                 clipBehavior: Clip.antiAlias,
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF1A1D24),
+                                  color: oscuro
+                                      ? const Color(0xFF1A1D24)
+                                      : const Color(0xFFF1F5F9),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: miniatura != null
@@ -526,7 +567,9 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
                                         color: Color(0xFF06B6D4),
                                       ),
                               ),
+
                               const SizedBox(width: 16),
+
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -556,37 +599,39 @@ class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
                                         ),
                                       ),
                                     ),
+
                                     const SizedBox(height: 10),
+
                                     Text(
                                       capacitacion.titulo,
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.white,
+                                      style: TextStyle(
+                                        color: onSurface,
                                         fontSize: 17,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
+
                                     const SizedBox(height: 6),
+
                                     Text(
                                       capacitacion.descripcion,
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Color(0xFF94A3B8),
+                                      style: TextStyle(
+                                        color: secondary,
                                         fontSize: 13,
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
+
                               if (_esAdmin)
                                 PopupMenuButton<String>(
-                                  color: const Color(0xFF1A1D24),
-                                  icon: const Icon(
-                                    Icons.more_vert,
-                                    color: Colors.grey,
-                                  ),
+                                  color: surface,
+                                  icon: Icon(Icons.more_vert, color: secondary),
                                   onSelected: (value) {
                                     if (value == 'editar') {
                                       _abrirEditor(existente: capacitacion);

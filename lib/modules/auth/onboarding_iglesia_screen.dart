@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/services/auth_service.dart';
+import '../../core/widgets/safe_avatar.dart';
 
 class OnboardingIglesiaScreen extends StatefulWidget {
   final User user;
@@ -22,8 +23,11 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
   final AuthService _authService = AuthService();
 
   final TextEditingController _codigoCtrl = TextEditingController();
+
   final TextEditingController _iglesiaCtrl = TextEditingController();
+
   final TextEditingController _descUsuarioCtrl = TextEditingController();
+
   final TextEditingController _descIglesiaCtrl = TextEditingController();
 
   bool _creandoIglesia = false;
@@ -36,6 +40,7 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
     _iglesiaCtrl.dispose();
     _descUsuarioCtrl.dispose();
     _descIglesiaCtrl.dispose();
+
     super.dispose();
   }
 
@@ -109,8 +114,19 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final oscuro = theme.brightness == Brightness.dark;
+
+    final fondoTarjeta = theme.colorScheme.surface;
+
+    final borde = oscuro ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+
+    final textoPrincipal = theme.colorScheme.onSurface;
+
+    final textoSecundario = theme.colorScheme.onSurfaceVariant;
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1115),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -118,29 +134,28 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
             constraints: const BoxConstraints(maxWidth: 420),
             padding: const EdgeInsets.all(32),
             decoration: BoxDecoration(
-              color: const Color(0xFF1A1D24),
+              color: fondoTarjeta,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: borde),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (widget.user.photoURL != null)
-                  CircleAvatar(
-                    radius: 36,
-                    backgroundImage: NetworkImage(widget.user.photoURL!),
-                  )
-                else
-                  const Icon(Icons.church, size: 48, color: Color(0xFF3B82F6)),
+                SafeAvatar(
+                  imageUrl: widget.user.photoURL,
+                  nombre: widget.user.displayName ?? 'Usuario',
+                  radius: 36,
+                ),
 
                 const SizedBox(height: 12),
 
                 Text(
-                  '¡Hola, ${widget.user.displayName ?? "bienvenido"}!',
-                  style: const TextStyle(
+                  '¡Hola, '
+                  '${widget.user.displayName ?? "bienvenido"}!',
+                  style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: textoPrincipal,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -151,10 +166,7 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
                   _creandoIglesia
                       ? 'Configura tu congregación'
                       : 'Ingresa a tu iglesia',
-                  style: const TextStyle(
-                    color: Color(0xFF94A3B8),
-                    fontSize: 13,
-                  ),
+                  style: TextStyle(color: textoSecundario, fontSize: 13),
                   textAlign: TextAlign.center,
                 ),
 
@@ -185,7 +197,9 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
                 TextField(
                   controller: _descUsuarioCtrl,
                   decoration: const InputDecoration(
-                    labelText: 'Descripción sobre ti (ej: Líder de jóvenes)',
+                    labelText:
+                        'Descripción sobre ti '
+                        '(ej: Líder de jóvenes)',
                     prefixIcon: Icon(Icons.person),
                   ),
                 ),
@@ -200,14 +214,19 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
                       prefixIcon: Icon(Icons.business),
                     ),
                   ),
+
                   const SizedBox(height: 12),
+
                   TextField(
                     controller: _descIglesiaCtrl,
                     decoration: const InputDecoration(
-                      labelText: 'Visión o Descripción de la Iglesia',
+                      labelText:
+                          'Visión o Descripción '
+                          'de la Iglesia',
                       prefixIcon: Icon(Icons.menu_book),
                     ),
                   ),
+
                   const SizedBox(height: 12),
                 ],
 
@@ -216,8 +235,10 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
                   textCapitalization: TextCapitalization.characters,
                   decoration: InputDecoration(
                     labelText: _creandoIglesia
-                        ? 'Crea un código (ej: JESED-1)'
-                        : 'Código de tu congregación',
+                        ? 'Crea un código '
+                              '(ej: JESED-1)'
+                        : 'Código de tu '
+                              'congregación',
                     prefixIcon: const Icon(Icons.vpn_key),
                   ),
                 ),
@@ -230,19 +251,26 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF3B82F6),
+                      foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
                     onPressed: _cargando ? null : _completar,
                     child: _cargando
-                        ? const CircularProgressIndicator(color: Colors.white)
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
                         : Text(
                             _creandoIglesia
                                 ? 'Crear Congregación'
                                 : 'Vincular y Continuar',
                             style: const TextStyle(
-                              color: Colors.white,
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
                             ),
@@ -258,13 +286,16 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
                       : () {
                           setState(() {
                             _creandoIglesia = !_creandoIglesia;
+
                             _error = null;
                           });
                         },
                   child: Text(
                     _creandoIglesia
-                        ? '¿Prefieres unirte a una existente?'
-                        : '¿Eres pastor? Registra una nueva',
+                        ? '¿Prefieres unirte '
+                              'a una existente?'
+                        : '¿Eres pastor? '
+                              'Registra una nueva',
                     style: const TextStyle(
                       color: Color(0xFF60A5FA),
                       fontSize: 12,

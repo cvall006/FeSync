@@ -2,22 +2,32 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/models/app_models.dart';
+import '../../core/widgets/safe_avatar.dart';
 import '../adora_live/adora_live_screen.dart';
 import '../agenda/agenda_screen.dart';
 import '../capacitaciones/capacitaciones_screen.dart';
 import '../comunidad/comunidad_screen.dart';
 import '../configuracion/configuracion_modulos_screen.dart';
 import '../escuela/escuela_screen.dart';
+import '../miembros/gestion_miembros_screen.dart';
+import '../perfil/perfil_screen.dart';
 import '../servidores/servidores_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
   final UsuarioModel usuario;
-  final VoidCallback onCerrarSesion;
+
+  final Future<void> Function() onCerrarSesion;
+
+  final Future<void> Function() onPerfilActualizado;
+
+  final Future<void> Function() onSalirCongregacion;
 
   const DashboardScreen({
     super.key,
     required this.usuario,
     required this.onCerrarSesion,
+    required this.onPerfilActualizado,
+    required this.onSalirCongregacion,
   });
 
   bool _moduloActivo(Map<String, dynamic> modulos, String clave) {
@@ -27,9 +37,23 @@ class DashboardScreen extends StatelessWidget {
       return valor;
     }
 
-    // Compatibilidad con iglesias creadas antes
-    // de que existiera esta clave.
     return true;
+  }
+
+  Future<void> _abrirPerfil(BuildContext context) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PerfilScreen(
+          usuario: usuario,
+          onCerrarSesion: onCerrarSesion,
+          onPerfilActualizado: onPerfilActualizado,
+          onSalirCongregacion: onSalirCongregacion,
+        ),
+      ),
+    );
+
+    await onPerfilActualizado();
   }
 
   @override
@@ -39,38 +63,31 @@ class DashboardScreen extends StatelessWidget {
         .doc(usuario.iglesiaId);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1115),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1D24),
         title: StreamBuilder<DocumentSnapshot>(
           stream: iglesiaRef.snapshots(),
           builder: (context, snapshot) {
-            String tituloIglesia = 'Cargando iglesia...';
+            String nombreIglesia = 'Mi Iglesia';
 
             if (snapshot.hasData && snapshot.data!.exists) {
               final data = snapshot.data!.data() as Map<String, dynamic>?;
 
-              tituloIglesia = data?['nombre']?.toString() ?? 'Mi Iglesia';
+              nombreIglesia = data?['nombre']?.toString() ?? 'Mi Iglesia';
             }
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  tituloIglesia,
+                  nombreIglesia,
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
                   ),
                 ),
                 Text(
-                  'Hola, ${usuario.nombre} - '
-                  '${usuario.descripcion ?? "Servidor"}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF94A3B8),
-                  ),
+                  'Hola, ${usuario.nombre}',
+                  style: const TextStyle(fontSize: 12),
                 ),
               ],
             );
@@ -79,8 +96,22 @@ class DashboardScreen extends StatelessWidget {
         actions: [
           if (usuario.rolGlobal == 'admin_iglesia')
             IconButton(
+              tooltip: 'Gestión de miembros',
+              icon: const Icon(Icons.group),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => GestionMiembrosScreen(usuario: usuario),
+                  ),
+                );
+              },
+            ),
+
+          if (usuario.rolGlobal == 'admin_iglesia')
+            IconButton(
               tooltip: 'Configurar módulos',
-              icon: const Icon(Icons.settings, color: Color(0xFF94A3B8)),
+              icon: const Icon(Icons.settings),
               onPressed: () {
                 Navigator.push(
                   context,
@@ -91,35 +122,20 @@ class DashboardScreen extends StatelessWidget {
                 );
               },
             ),
+
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            child: Container(
-              width: 36,
-              height: 36,
-              decoration: const BoxDecoration(
-                color: Color(0xFF334155),
-                shape: BoxShape.circle,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(30),
+              onTap: () {
+                _abrirPerfil(context);
+              },
+              child: SafeAvatar(
+                imageUrl: usuario.fotoUrl,
+                nombre: usuario.nombre,
+                radius: 19,
               ),
-              clipBehavior: Clip.antiAlias,
-              child: usuario.fotoUrl != null && usuario.fotoUrl!.isNotEmpty
-                  ? Image.network(
-                      usuario.fotoUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Icon(
-                          Icons.person,
-                          color: Colors.white,
-                          size: 20,
-                        );
-                      },
-                    )
-                  : const Icon(Icons.person, color: Colors.white, size: 20),
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout, color: Color(0xFF94A3B8)),
-            tooltip: 'Cerrar sesión',
-            onPressed: onCerrarSesion,
           ),
         ],
       ),
@@ -135,7 +151,7 @@ class DashboardScreen extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Text(
-                  'No fue posible cargar los módulos.\n'
+                  'No fue posible cargar la iglesia.\n'
                   '${snapshot.error}',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.redAccent),
@@ -145,20 +161,15 @@ class DashboardScreen extends StatelessWidget {
           }
 
           if (!snapshot.hasData || !snapshot.data!.exists) {
-            return const Center(
-              child: Text(
-                'No se encontró la configuración de la iglesia.',
-                style: TextStyle(color: Color(0xFF94A3B8)),
-              ),
-            );
+            return const Center(child: Text('No se encontró la iglesia.'));
           }
 
           final data = snapshot.data!.data() as Map<String, dynamic>;
 
-          final rawModulos = data['modulosActivos'];
+          final raw = data['modulosActivos'];
 
-          final modulos = rawModulos is Map<String, dynamic>
-              ? rawModulos
+          final modulos = raw is Map<String, dynamic>
+              ? raw
               : <String, dynamic>{};
 
           final tarjetas = <Widget>[];
@@ -282,32 +293,24 @@ class DashboardScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Módulos Congregacionales',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
+                  style: Theme.of(context).textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.bold),
                 ),
+
                 const SizedBox(height: 6),
-                const Text(
+
+                Text(
                   'Selecciona un área de servicio o consulta',
-                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
+
                 const SizedBox(height: 20),
+
                 Expanded(
                   child: tarjetas.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'No hay módulos activos para esta iglesia.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Color(0xFF94A3B8),
-                              fontSize: 16,
-                            ),
-                          ),
-                        )
+                      ? const Center(child: Text('No hay módulos activos.'))
                       : GridView.count(
                           crossAxisCount:
                               MediaQuery.of(context).size.width > 600 ? 3 : 2,
@@ -342,46 +345,58 @@ class _ModuloCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1A1D24),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFF334155)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            CircleAvatar(
-              backgroundColor: color.withValues(alpha: 0.15),
-              child: Icon(icono, color: color),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  titulo,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+    final theme = Theme.of(context);
+
+    final oscuro = theme.brightness == Brightness.dark;
+
+    final fondo = theme.colorScheme.surface;
+
+    final borde = oscuro ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+
+    final tituloColor = theme.colorScheme.onSurface;
+
+    final subtituloColor = theme.colorScheme.onSurfaceVariant;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: fondo,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: borde),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              CircleAvatar(
+                backgroundColor: color.withValues(alpha: 0.15),
+                child: Icon(icono, color: color),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    titulo,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: tituloColor,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitulo,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF94A3B8),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitulo,
+                    style: TextStyle(fontSize: 11, color: subtituloColor),
                   ),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

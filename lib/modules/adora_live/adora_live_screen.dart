@@ -32,10 +32,10 @@ class _AdoraLiveScreenState extends State<AdoraLiveScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1115),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1D24),
         title: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -56,9 +56,9 @@ class _AdoraLiveScreenState extends State<AdoraLiveScreen> {
             _indiceActual = index;
           });
         },
-        backgroundColor: const Color(0xFF1A1D24),
+        backgroundColor: theme.colorScheme.surface,
         selectedItemColor: const Color(0xFF8B5CF6),
-        unselectedItemColor: const Color(0xFF94A3B8),
+        unselectedItemColor: theme.colorScheme.onSurfaceVariant,
         type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),

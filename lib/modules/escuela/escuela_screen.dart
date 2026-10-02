@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/models/app_models.dart';
-import 'escuela_models.dart';
 import 'escuela_evaluaciones_screen.dart';
+import 'escuela_models.dart';
 
 class EscuelaScreen extends StatefulWidget {
   final UsuarioModel usuario;
@@ -57,11 +57,13 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1A1D24),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
+        final theme = Theme.of(ctx);
+
         return Padding(
           padding: EdgeInsets.only(
             left: 20,
@@ -76,29 +78,37 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
               children: [
                 Text(
                   modulo == null ? 'Crear Módulo' : 'Editar Módulo',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurface,
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+
                 const SizedBox(height: 20),
+
                 TextField(
                   controller: tituloCtrl,
+                  textCapitalization: TextCapitalization.sentences,
                   decoration: const InputDecoration(
                     labelText: 'Título del módulo',
                   ),
                 ),
+
                 const SizedBox(height: 14),
+
                 TextField(
                   controller: descripcionCtrl,
                   minLines: 2,
                   maxLines: 4,
+                  textCapitalization: TextCapitalization.sentences,
                   decoration: const InputDecoration(
                     labelText: 'Descripción del módulo',
                   ),
                 ),
+
                 const SizedBox(height: 24),
+
                 SizedBox(
                   width: double.infinity,
                   height: 50,
@@ -159,14 +169,11 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
           context: context,
           builder: (ctx) {
             return AlertDialog(
-              backgroundColor: const Color(0xFF1A1D24),
-              title: const Text(
-                'Eliminar módulo',
-                style: TextStyle(color: Colors.white),
-              ),
+              title: const Text('Eliminar módulo'),
               content: Text(
-                '¿Deseas eliminar "${modulo.titulo}" y todas sus clases?',
-                style: const TextStyle(color: Color(0xFF94A3B8)),
+                '¿Deseas eliminar '
+                '"${modulo.titulo}" '
+                'y todas sus clases?',
               ),
               actions: [
                 TextButton(
@@ -214,8 +221,10 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
     await showDialog<void>(
       context: context,
       builder: (ctx) {
+        final theme = Theme.of(ctx);
+
         return Dialog(
-          backgroundColor: const Color(0xFF1A1D24),
+          backgroundColor: theme.colorScheme.surface,
           insetPadding: const EdgeInsets.all(20),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720),
@@ -228,30 +237,39 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                   children: [
                     Text(
                       clase == null ? 'Agregar Clase' : 'Editar Clase',
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurface,
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+
                     const SizedBox(height: 20),
+
                     TextField(
                       controller: tituloCtrl,
+                      textCapitalization: TextCapitalization.sentences,
                       decoration: const InputDecoration(
                         labelText:
-                            'Título de la clase (ej: Clase 1 - El Fundamento)',
+                            'Título de la clase '
+                            '(ej: Clase 1 - El Fundamento)',
                       ),
                     ),
+
                     const SizedBox(height: 14),
+
                     TextField(
                       controller: descripcionCtrl,
                       minLines: 2,
                       maxLines: 5,
+                      textCapitalization: TextCapitalization.sentences,
                       decoration: const InputDecoration(
                         labelText: 'Resumen corto',
                       ),
                     ),
+
                     const SizedBox(height: 14),
+
                     TextField(
                       controller: videoCtrl,
                       keyboardType: TextInputType.url,
@@ -260,7 +278,9 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                         prefixIcon: Icon(Icons.video_camera_back),
                       ),
                     ),
+
                     const SizedBox(height: 14),
+
                     TextField(
                       controller: pdfCtrl,
                       keyboardType: TextInputType.url,
@@ -269,7 +289,9 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                         prefixIcon: Icon(Icons.picture_as_pdf),
                       ),
                     ),
+
                     const SizedBox(height: 24),
+
                     SizedBox(
                       width: double.infinity,
                       height: 50,
@@ -355,14 +377,10 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
           context: context,
           builder: (ctx) {
             return AlertDialog(
-              backgroundColor: const Color(0xFF1A1D24),
-              title: const Text(
-                'Eliminar clase',
-                style: TextStyle(color: Colors.white),
-              ),
+              title: const Text('Eliminar clase'),
               content: Text(
-                '¿Deseas eliminar "${clase.titulo}"?',
-                style: const TextStyle(color: Color(0xFF94A3B8)),
+                '¿Deseas eliminar '
+                '"${clase.titulo}"?',
               ),
               actions: [
                 TextButton(
@@ -410,15 +428,26 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final oscuro = theme.brightness == Brightness.dark;
+
+    final surface = theme.colorScheme.surface;
+
+    final onSurface = theme.colorScheme.onSurface;
+
+    final secondary = theme.colorScheme.onSurfaceVariant;
+
+    final border = oscuro ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+
+    final claseBackground = oscuro
+        ? const Color(0xFF0F1115)
+        : const Color(0xFFF8FAFC);
+
+    final searchBackground = oscuro ? const Color(0xFF11151A) : Colors.white;
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1115),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
-        title: const Text(
-          'Escuela Bíblica',
-          style: TextStyle(color: Colors.white),
-        ),
-      ),
+      appBar: AppBar(title: const Text('Escuela Bíblica')),
       floatingActionButton: _esAdmin
           ? FloatingActionButton.extended(
               backgroundColor: const Color(0xFFF59E0B),
@@ -445,18 +474,23 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                 hintText: 'Buscar módulo...',
                 prefixIcon: const Icon(Icons.search),
                 filled: true,
-                fillColor: const Color(0xFF11151A),
+                fillColor: searchBackground,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(color: Color(0xFF334155)),
+                  borderSide: BorderSide(color: border),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(color: Color(0xFF334155)),
+                  borderSide: BorderSide(color: border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Color(0xFFF59E0B)),
                 ),
               ),
             ),
           ),
+
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: _modulosRef.snapshots(),
@@ -468,7 +502,8 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                 if (snapshot.hasError) {
                   return Center(
                     child: Text(
-                      'Error al cargar Escuela:\n${snapshot.error}',
+                      'Error al cargar Escuela:\n'
+                      '${snapshot.error}',
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: Colors.redAccent),
                     ),
@@ -477,12 +512,12 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
 
                 final modulos =
                     snapshot.data?.docs
-                        .map((doc) {
-                          return EscuelaModuloModel.fromMap(
+                        .map(
+                          (doc) => EscuelaModuloModel.fromMap(
                             doc.data() as Map<String, dynamic>,
                             doc.id,
-                          );
-                        })
+                          ),
+                        )
                         .where((modulo) {
                           if (_busqueda.isEmpty) {
                             return true;
@@ -501,6 +536,7 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                 modulos.sort((a, b) {
                   final fechaA =
                       a.fechaCreacion ?? DateTime.fromMillisecondsSinceEpoch(0);
+
                   final fechaB =
                       b.fechaCreacion ?? DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -508,10 +544,12 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                 });
 
                 if (modulos.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Text(
-                      'No hay módulos disponibles.',
-                      style: TextStyle(color: Color(0xFF94A3B8)),
+                      _busqueda.isEmpty
+                          ? 'No hay módulos disponibles.'
+                          : 'No se encontraron módulos.',
+                      style: TextStyle(color: secondary),
                     ),
                   );
                 }
@@ -524,10 +562,10 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
 
                     return Card(
                       margin: const EdgeInsets.only(bottom: 18),
-                      color: const Color(0xFF161B22),
+                      color: surface,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(18),
-                        side: const BorderSide(color: Color(0xFF334155)),
+                        side: BorderSide(color: border),
                       ),
                       child: Padding(
                         padding: const EdgeInsets.all(18),
@@ -550,20 +588,24 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                                           fontSize: 12,
                                         ),
                                       ),
+
                                       const SizedBox(height: 8),
+
                                       Text(
                                         modulo.titulo,
-                                        style: const TextStyle(
-                                          color: Colors.white,
+                                        style: TextStyle(
+                                          color: onSurface,
                                           fontSize: 22,
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
+
                                       const SizedBox(height: 8),
+
                                       Text(
                                         modulo.descripcion,
-                                        style: const TextStyle(
-                                          color: Color(0xFF94A3B8),
+                                        style: TextStyle(
+                                          color: secondary,
                                           fontSize: 14,
                                           height: 1.4,
                                         ),
@@ -571,12 +613,13 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                                     ],
                                   ),
                                 ),
+
                                 if (_esAdmin)
                                   PopupMenuButton<String>(
-                                    color: const Color(0xFF1A1D24),
-                                    icon: const Icon(
+                                    color: surface,
+                                    icon: Icon(
                                       Icons.more_vert,
-                                      color: Colors.grey,
+                                      color: secondary,
                                     ),
                                     onSelected: (value) {
                                       if (value == 'editar') {
@@ -605,13 +648,17 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                                   ),
                               ],
                             ),
+
                             const SizedBox(height: 20),
+
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton.icon(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF334155),
-                                  foregroundColor: Colors.white,
+                                  backgroundColor: oscuro
+                                      ? const Color(0xFF334155)
+                                      : const Color(0xFFF1F5F9),
+                                  foregroundColor: onSurface,
                                 ),
                                 onPressed: () {
                                   _abrirEvaluaciones(modulo);
@@ -622,18 +669,18 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                                 ),
                               ),
                             ),
-                            const Divider(color: Color(0xFF334155), height: 36),
+
+                            Divider(color: border, height: 36),
+
                             ...modulo.clases.map((clase) {
                               return Container(
                                 width: double.infinity,
                                 margin: const EdgeInsets.only(bottom: 14),
                                 padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF0F1115),
+                                  color: claseBackground,
                                   borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: const Color(0xFF26313D),
-                                  ),
+                                  border: Border.all(color: border),
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -643,13 +690,14 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                                         Expanded(
                                           child: Text(
                                             clase.titulo,
-                                            style: const TextStyle(
-                                              color: Colors.white,
+                                            style: TextStyle(
+                                              color: onSurface,
                                               fontSize: 17,
                                               fontWeight: FontWeight.bold,
                                             ),
                                           ),
                                         ),
+
                                         if (_esAdmin)
                                           IconButton(
                                             tooltip: 'Editar clase',
@@ -659,11 +707,12 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                                                 clase: clase,
                                               );
                                             },
-                                            icon: const Icon(
+                                            icon: Icon(
                                               Icons.edit,
-                                              color: Colors.white70,
+                                              color: secondary,
                                             ),
                                           ),
+
                                         if (_esAdmin)
                                           IconButton(
                                             tooltip: 'Eliminar clase',
@@ -677,17 +726,21 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                                           ),
                                       ],
                                     ),
+
                                     const SizedBox(height: 8),
+
                                     Text(
                                       clase.descripcion,
-                                      style: const TextStyle(
-                                        color: Color(0xFF94A3B8),
+                                      style: TextStyle(
+                                        color: secondary,
                                         height: 1.45,
                                       ),
                                     ),
+
                                     if (clase.linkVideo.isNotEmpty ||
                                         clase.linkPdf.isNotEmpty) ...[
                                       const SizedBox(height: 12),
+
                                       Wrap(
                                         spacing: 8,
                                         runSpacing: 8,
@@ -702,6 +755,7 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                                               ),
                                               label: const Text('Video / Meet'),
                                             ),
+
                                           if (clase.linkPdf.isNotEmpty)
                                             OutlinedButton.icon(
                                               onPressed: () {
@@ -719,6 +773,7 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
                                 ),
                               );
                             }),
+
                             if (_esAdmin)
                               TextButton.icon(
                                 onPressed: () {

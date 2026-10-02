@@ -20,21 +20,32 @@ class AdoraAgendaScreen extends StatelessWidget {
 
   Future<void> _mostrarFormularioEvento(BuildContext context) async {
     final tituloCtrl = TextEditingController();
+
     final tipoCtrl = TextEditingController();
 
     DateTime? fechaSeleccionada;
     TimeOfDay? horaSeleccionada;
 
+    final theme = Theme.of(context);
+
+    final oscuro = theme.brightness == Brightness.dark;
+
+    final selectorColor = oscuro
+        ? const Color(0xFF2A2F38)
+        : const Color(0xFFF1F5F9);
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1A1D24),
+      backgroundColor: theme.colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            final modalTheme = Theme.of(context);
+
             return Padding(
               padding: EdgeInsets.only(
                 left: 20,
@@ -47,10 +58,10 @@ class AdoraAgendaScreen extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Nuevo Evento',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: modalTheme.colorScheme.onSurface,
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
                       ),
@@ -75,8 +86,8 @@ class AdoraAgendaScreen extends StatelessWidget {
                         Expanded(
                           child: ElevatedButton.icon(
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF2A2F38),
-                              foregroundColor: Colors.white,
+                              backgroundColor: selectorColor,
+                              foregroundColor: modalTheme.colorScheme.onSurface,
                             ),
                             icon: const Icon(Icons.calendar_today, size: 18),
                             label: Text(
@@ -110,8 +121,8 @@ class AdoraAgendaScreen extends StatelessWidget {
                         Expanded(
                           child: ElevatedButton.icon(
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF2A2F38),
-                              foregroundColor: Colors.white,
+                              backgroundColor: selectorColor,
+                              foregroundColor: modalTheme.colorScheme.onSurface,
                             ),
                             icon: const Icon(Icons.access_time, size: 18),
                             label: Text(
@@ -236,6 +247,7 @@ class AdoraAgendaScreen extends StatelessWidget {
 
   String _hora(DateTime fecha) {
     final h = fecha.hour.toString().padLeft(2, '0');
+
     final m = fecha.minute.toString().padLeft(2, '0');
 
     return '$h:$m';
@@ -243,6 +255,18 @@ class AdoraAgendaScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final oscuro = theme.brightness == Brightness.dark;
+
+    final surface = theme.colorScheme.surface;
+
+    final onSurface = theme.colorScheme.onSurface;
+
+    final secondary = theme.colorScheme.onSurfaceVariant;
+
+    final border = oscuro ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -251,13 +275,13 @@ class AdoraAgendaScreen extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Próximos Eventos',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: onSurface,
                   ),
                 ),
               ),
@@ -295,22 +319,43 @@ class AdoraAgendaScreen extends StatelessWidget {
                 );
               }
 
+              final ahora = DateTime.now();
+
+              final inicioHoy = DateTime(ahora.year, ahora.month, ahora.day);
+
               final eventos =
-                  snapshot.data?.docs.map((doc) {
-                    return AdoraEventoModel.fromMap(
-                      doc.data() as Map<String, dynamic>,
-                      doc.id,
-                    );
-                  }).toList() ??
+                  snapshot.data?.docs
+                      .map(
+                        (doc) => AdoraEventoModel.fromMap(
+                          doc.data() as Map<String, dynamic>,
+                          doc.id,
+                        ),
+                      )
+                      .where((evento) => !evento.fechaHora.isBefore(inicioHoy))
+                      .toList() ??
                   [];
 
-              eventos.sort((a, b) => a.fechaHora.compareTo(b.fechaHora));
+              eventos.sort((a, b) {
+                final aVencido = a.fechaHora.isBefore(ahora);
+
+                final bVencido = b.fechaHora.isBefore(ahora);
+
+                if (aVencido != bVencido) {
+                  return aVencido ? 1 : -1;
+                }
+
+                if (!aVencido) {
+                  return a.fechaHora.compareTo(b.fechaHora);
+                }
+
+                return b.fechaHora.compareTo(a.fechaHora);
+              });
 
               if (eventos.isEmpty) {
-                return const Center(
+                return Center(
                   child: Text(
                     'No hay eventos programados.',
-                    style: TextStyle(color: Color(0xFF94A3B8)),
+                    style: TextStyle(color: secondary),
                   ),
                 );
               }
@@ -323,12 +368,28 @@ class AdoraAgendaScreen extends StatelessWidget {
 
                   final esEnsayo = evento.tipo.toLowerCase() == 'ensayo';
 
+                  final vencido = evento.fechaHora.isBefore(ahora);
+
+                  final colorAcento = vencido
+                      ? const Color(0xFF64748B)
+                      : const Color(0xFF3B82F6);
+
+                  final colorTarjeta = vencido
+                      ? oscuro
+                            ? const Color(0xFF171A20)
+                            : const Color(0xFFF1F5F9)
+                      : surface;
+
+                  final colorTitulo = vencido
+                      ? const Color(0xFF64748B)
+                      : onSurface;
+
                   return Card(
-                    color: const Color(0xFF1A1D24),
+                    color: colorTarjeta,
                     margin: const EdgeInsets.only(bottom: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
-                      side: const BorderSide(color: Color(0xFF334155)),
+                      side: BorderSide(color: border),
                     ),
                     child: ListTile(
                       contentPadding: const EdgeInsets.symmetric(
@@ -338,8 +399,7 @@ class AdoraAgendaScreen extends StatelessWidget {
                       leading: Container(
                         width: 54,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF3B82F6)
-                              .withValues(alpha: 0.14),
+                          color: colorAcento.withValues(alpha: 0.14),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Column(
@@ -347,16 +407,16 @@ class AdoraAgendaScreen extends StatelessWidget {
                           children: [
                             Text(
                               _mesCorto(evento.fechaHora),
-                              style: const TextStyle(
-                                color: Color(0xFF60A5FA),
+                              style: TextStyle(
+                                color: colorAcento,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 12,
                               ),
                             ),
                             Text(
                               evento.fechaHora.day.toString().padLeft(2, '0'),
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: colorTitulo,
                                 fontSize: 20,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -364,13 +424,40 @@ class AdoraAgendaScreen extends StatelessWidget {
                           ],
                         ),
                       ),
-                      title: Text(
-                        evento.titulo,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
+                      title: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              evento.titulo,
+                              style: TextStyle(
+                                color: colorTitulo,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
+                          ),
+                          if (vencido)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: oscuro
+                                    ? Colors.white.withValues(alpha: 0.08)
+                                    : const Color(0xFFE2E8F0),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Text(
+                                'FINALIZADO',
+                                style: TextStyle(
+                                  color: Color(0xFF64748B),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                       subtitle: Padding(
                         padding: const EdgeInsets.only(top: 6),
@@ -379,14 +466,18 @@ class AdoraAgendaScreen extends StatelessWidget {
                             Icon(
                               esEnsayo ? Icons.music_note : Icons.church,
                               size: 16,
-                              color: Colors.grey,
+                              color: colorAcento,
                             ),
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
                                 '${_diaSemana(evento.fechaHora)}'
                                 ' - ${_hora(evento.fechaHora)}',
-                                style: const TextStyle(color: Colors.grey),
+                                style: TextStyle(
+                                  color: vencido
+                                      ? const Color(0xFF64748B)
+                                      : secondary,
+                                ),
                               ),
                             ),
                           ],
@@ -395,15 +486,11 @@ class AdoraAgendaScreen extends StatelessWidget {
                       trailing: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(
-                            Icons.people,
-                            size: 17,
-                            color: Color(0xFF60A5FA),
-                          ),
+                          Icon(Icons.people, size: 17, color: colorAcento),
                           Text(
                             '${evento.asistentesUids.length}',
-                            style: const TextStyle(
-                              color: Color(0xFF60A5FA),
+                            style: TextStyle(
+                              color: colorAcento,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -465,95 +552,101 @@ class AdoraSetlistScreen extends StatelessWidget {
   ) async {
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF1A1D24),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) {
-        return Column(
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(20),
-              child: Text(
-                'Agregar al Setlist',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+        return Material(
+          color: Theme.of(ctx).colorScheme.surface,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Text(
+                  'Agregar al Setlist',
+                  style: TextStyle(
+                    color: Theme.of(ctx).colorScheme.onSurface,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
-            ),
-            Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: _cancionesRef.orderBy('titulo').snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+              Expanded(
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: _cancionesRef.orderBy('titulo').snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
 
-                  final canciones = snapshot.data?.docs ?? [];
+                    final canciones = snapshot.data?.docs ?? [];
 
-                  if (canciones.isEmpty) {
-                    return const Center(
-                      child: Text(
-                        'No hay canciones guardadas.',
-                        style: TextStyle(color: Color(0xFF94A3B8)),
-                      ),
-                    );
-                  }
-
-                  return ListView.builder(
-                    itemCount: canciones.length,
-                    itemBuilder: (context, index) {
-                      final doc = canciones[index];
-
-                      final cancion = doc.data() as Map<String, dynamic>;
-
-                      final yaAgregada = cancionesActuales.contains(doc.id);
-
-                      return ListTile(
-                        leading: const Icon(
-                          Icons.music_note,
-                          color: Color(0xFF60A5FA),
+                    if (canciones.isEmpty) {
+                      return Center(
+                        child: Text(
+                          'No hay canciones guardadas.',
+                          style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                          ),
                         ),
-                        title: Text(
-                          cancion['titulo']?.toString() ?? '',
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                        subtitle: Text(
-                          cancion['tono']?.toString() ?? '',
-                          style: const TextStyle(color: Colors.grey),
-                        ),
-                        trailing: Icon(
-                          yaAgregada
-                              ? Icons.check_circle
-                              : Icons.add_circle_outline,
-                          color: yaAgregada
-                              ? Colors.greenAccent
-                              : Colors.white70,
-                        ),
-                        onTap: yaAgregada
-                            ? null
-                            : () async {
-                                await _eventoRef.update({
-                                  'cancionesIds': FieldValue.arrayUnion([
-                                    doc.id,
-                                  ]),
-                                });
-
-                                if (!ctx.mounted) {
-                                  return;
-                                }
-
-                                Navigator.pop(ctx);
-                              },
                       );
-                    },
-                  );
-                },
+                    }
+
+                    return ListView.builder(
+                      itemCount: canciones.length,
+                      itemBuilder: (context, index) {
+                        final doc = canciones[index];
+
+                        final cancion = doc.data() as Map<String, dynamic>;
+
+                        final yaAgregada = cancionesActuales.contains(doc.id);
+
+                        return Material(
+                          color: Colors.transparent,
+                          child: ListTile(
+                            leading: const Icon(
+                              Icons.music_note,
+                              color: Color(0xFF3B82F6),
+                            ),
+                            title: Text(cancion['titulo']?.toString() ?? ''),
+                            subtitle: Text(cancion['tono']?.toString() ?? ''),
+                            trailing: Icon(
+                              yaAgregada
+                                  ? Icons.check_circle
+                                  : Icons.add_circle_outline,
+                              color: yaAgregada
+                                  ? Colors.green
+                                  : Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                            ),
+                            onTap: yaAgregada
+                                ? null
+                                : () async {
+                                    await _eventoRef.update({
+                                      'cancionesIds': FieldValue.arrayUnion([
+                                        doc.id,
+                                      ]),
+                                    });
+
+                                    if (!ctx.mounted) {
+                                      return;
+                                    }
+
+                                    Navigator.pop(ctx);
+                                  },
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );
@@ -566,6 +659,7 @@ class AdoraSetlistScreen extends StatelessWidget {
     final nuevaLista = List<String>.from(asistentesActuales);
 
     nuevaLista.remove(usuario.uid);
+
     nuevaLista.remove(usuario.nombre);
 
     if (asistir) {
@@ -589,12 +683,20 @@ class AdoraSetlistScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final oscuro = theme.brightness == Brightness.dark;
+
+    final surface = theme.colorScheme.surface;
+
+    final onSurface = theme.colorScheme.onSurface;
+
+    final secondary = theme.colorScheme.onSurfaceVariant;
+
+    final border = oscuro ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1115),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1D24),
-        title: Text(tituloEvento),
-      ),
+      appBar: AppBar(title: Text(tituloEvento)),
       body: StreamBuilder<DocumentSnapshot>(
         stream: _eventoRef.snapshots(),
         builder: (context, snapshotEvento) {
@@ -640,7 +742,7 @@ class AdoraSetlistScreen extends StatelessWidget {
                       vertical: 12,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1A1D24),
+                      color: surface,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: const Color(0xFF3B82F6).withValues(alpha: 0.3),
@@ -652,13 +754,13 @@ class AdoraSetlistScreen extends StatelessWidget {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Expanded(
+                            Expanded(
                               child: Text(
                                 '¿Asistirás al evento?',
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                  color: onSurface,
                                 ),
                               ),
                             ),
@@ -671,14 +773,11 @@ class AdoraSetlistScreen extends StatelessWidget {
                             ),
                           ],
                         ),
-                        const Divider(color: Color(0xFF334155)),
+                        Divider(color: border),
                         const SizedBox(height: 8),
                         Text(
                           'Confirmados (${asistentes.length}):',
-                          style: const TextStyle(
-                            color: Colors.grey,
-                            fontSize: 14,
-                          ),
+                          style: TextStyle(color: secondary, fontSize: 14),
                         ),
                         const SizedBox(height: 8),
                         Wrap(
@@ -692,7 +791,7 @@ class AdoraSetlistScreen extends StatelessWidget {
                                     style: const TextStyle(fontSize: 12),
                                   ),
                                   backgroundColor: const Color(0xFF3B82F6)
-                                      .withValues(alpha: 0.2),
+                                      .withValues(alpha: 0.18),
                                   side: BorderSide.none,
                                 ),
                               )
@@ -701,6 +800,7 @@ class AdoraSetlistScreen extends StatelessWidget {
                       ],
                     ),
                   ),
+
                   if (_puedeGestionar)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -719,15 +819,13 @@ class AdoraSetlistScreen extends StatelessWidget {
                         ),
                       ),
                     ),
+
                   Expanded(
                     child: cancionesIds.isEmpty
-                        ? const Center(
+                        ? Center(
                             child: Text(
                               'No hay canciones asignadas a este día.',
-                              style: TextStyle(
-                                color: Color(0xFF94A3B8),
-                                fontSize: 16,
-                              ),
+                              style: TextStyle(color: secondary, fontSize: 16),
                             ),
                           )
                         : StreamBuilder<QuerySnapshot>(
@@ -764,33 +862,35 @@ class AdoraSetlistScreen extends StatelessWidget {
                                   final cancion = canciones[index];
 
                                   return Card(
-                                    color: const Color(0xFF1A1D24),
+                                    color: surface,
                                     margin: const EdgeInsets.only(bottom: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      side: BorderSide(color: border),
+                                    ),
                                     child: ListTile(
                                       leading: CircleAvatar(
                                         backgroundColor: const Color(0xFF3B82F6)
-                                            .withValues(alpha: 0.2),
+                                            .withValues(alpha: 0.18),
                                         child: Text(
                                           '${index + 1}',
                                           style: const TextStyle(
-                                            color: Color(0xFF60A5FA),
+                                            color: Color(0xFF3B82F6),
                                             fontWeight: FontWeight.bold,
                                           ),
                                         ),
                                       ),
                                       title: Text(
                                         cancion.titulo,
-                                        style: const TextStyle(
-                                          color: Colors.white,
+                                        style: TextStyle(
+                                          color: onSurface,
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
                                       subtitle: Text(
                                         'Tono: '
                                         '${cancion.tono.isEmpty ? "-" : cancion.tono}',
-                                        style: const TextStyle(
-                                          color: Color(0xFF94A3B8),
-                                        ),
+                                        style: TextStyle(color: secondary),
                                       ),
                                       trailing: _puedeGestionar
                                           ? IconButton(

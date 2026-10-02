@@ -36,6 +36,7 @@ class _ComunidadScreenState extends State<ComunidadScreen>
   @override
   void dispose() {
     _tabController.dispose();
+
     super.dispose();
   }
 
@@ -47,13 +48,15 @@ class _ComunidadScreenState extends State<ComunidadScreen>
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1A1D24),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            final theme = Theme.of(context);
+
             return Padding(
               padding: EdgeInsets.only(
                 left: 20,
@@ -66,18 +69,19 @@ class _ComunidadScreenState extends State<ComunidadScreen>
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Nueva Publicación',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: theme.colorScheme.onSurface,
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+
                     const SizedBox(height: 20),
+
                     DropdownButtonFormField<String>(
                       initialValue: tipoSeleccionado,
-                      dropdownColor: const Color(0xFF1A1D24),
                       decoration: const InputDecoration(
                         labelText: 'Tipo de publicación',
                       ),
@@ -98,11 +102,14 @@ class _ComunidadScreenState extends State<ComunidadScreen>
                         });
                       },
                     ),
+
                     const SizedBox(height: 16),
+
                     TextField(
                       controller: contenidoCtrl,
                       minLines: 4,
                       maxLines: 8,
+                      textCapitalization: TextCapitalization.sentences,
                       decoration: InputDecoration(
                         labelText: tipoSeleccionado == 'aviso'
                             ? 'Escribe el aviso'
@@ -110,7 +117,9 @@ class _ComunidadScreenState extends State<ComunidadScreen>
                         alignLabelWithHint: true,
                       ),
                     ),
+
                     const SizedBox(height: 24),
+
                     SizedBox(
                       width: double.infinity,
                       height: 50,
@@ -168,15 +177,8 @@ class _ComunidadScreenState extends State<ComunidadScreen>
           context: context,
           builder: (ctx) {
             return AlertDialog(
-              backgroundColor: const Color(0xFF1A1D24),
-              title: const Text(
-                'Eliminar publicación',
-                style: TextStyle(color: Colors.white),
-              ),
-              content: const Text(
-                '¿Deseas eliminar esta publicación?',
-                style: TextStyle(color: Color(0xFF94A3B8)),
-              ),
+              title: const Text('Eliminar publicación'),
+              content: const Text('¿Deseas eliminar esta publicación?'),
               actions: [
                 TextButton(
                   onPressed: () {
@@ -212,16 +214,29 @@ class _ComunidadScreenState extends State<ComunidadScreen>
     }
 
     final dia = fecha.day.toString().padLeft(2, '0');
+
     final mes = fecha.month.toString().padLeft(2, '0');
+
     final anio = fecha.year.toString();
 
     final hora = fecha.hour.toString().padLeft(2, '0');
+
     final minuto = fecha.minute.toString().padLeft(2, '0');
 
     return '$dia/$mes/$anio $hora:$minuto';
   }
 
   Widget _buildLista(String tipo) {
+    final theme = Theme.of(context);
+
+    final oscuro = theme.brightness == Brightness.dark;
+
+    final surface = theme.colorScheme.surface;
+
+    final onSurface = theme.colorScheme.onSurface;
+
+    final secondary = theme.colorScheme.onSurfaceVariant;
+
     return StreamBuilder<QuerySnapshot>(
       stream: _muroRef
           .where('tipo', isEqualTo: tipo)
@@ -247,12 +262,14 @@ class _ComunidadScreenState extends State<ComunidadScreen>
         }
 
         final publicaciones =
-            snapshot.data?.docs.map((doc) {
-              return ComunidadPublicacionModel.fromMap(
-                doc.data() as Map<String, dynamic>,
-                doc.id,
-              );
-            }).toList() ??
+            snapshot.data?.docs
+                .map(
+                  (doc) => ComunidadPublicacionModel.fromMap(
+                    doc.data() as Map<String, dynamic>,
+                    doc.id,
+                  ),
+                )
+                .toList() ??
             [];
 
         if (publicaciones.isEmpty) {
@@ -261,7 +278,7 @@ class _ComunidadScreenState extends State<ComunidadScreen>
               tipo == 'aviso'
                   ? 'No hay avisos publicados.'
                   : 'No hay peticiones publicadas.',
-              style: const TextStyle(color: Color(0xFF94A3B8)),
+              style: TextStyle(color: secondary),
             ),
           );
         }
@@ -277,16 +294,18 @@ class _ComunidadScreenState extends State<ComunidadScreen>
             final puedeEliminar =
                 _esAdmin || publicacion.autorUid == widget.usuario.uid;
 
+            final colorAcento = esAviso
+                ? const Color(0xFF2563EB)
+                : const Color(0xFFEC4899);
+
             return Container(
               margin: const EdgeInsets.only(bottom: 16),
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                color: const Color(0xFF1A1D24),
+                color: surface,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: esAviso
-                      ? const Color(0xFF2563EB).withValues(alpha: 0.65)
-                      : const Color(0xFFEC4899).withValues(alpha: 0.55),
+                  color: colorAcento.withValues(alpha: oscuro ? 0.55 : 0.35),
                 ),
               ),
               child: Column(
@@ -296,25 +315,25 @@ class _ComunidadScreenState extends State<ComunidadScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       CircleAvatar(
-                        backgroundColor: esAviso
-                            ? const Color(0xFF2563EB).withValues(alpha: 0.22)
-                            : const Color(0xFFEC4899).withValues(alpha: 0.22),
+                        backgroundColor: colorAcento.withValues(
+                          alpha: oscuro ? 0.22 : 0.12,
+                        ),
                         child: Icon(
                           esAviso ? Icons.campaign : Icons.favorite,
-                          color: esAviso
-                              ? const Color(0xFF60A5FA)
-                              : const Color(0xFFF472B6),
+                          color: colorAcento,
                         ),
                       ),
+
                       const SizedBox(width: 12),
+
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               publicacion.autorNombre,
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: onSurface,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -322,33 +341,33 @@ class _ComunidadScreenState extends State<ComunidadScreen>
                             const SizedBox(height: 2),
                             Text(
                               _formatearFecha(publicacion.fechaCreacion),
-                              style: const TextStyle(
-                                color: Color(0xFF94A3B8),
-                                fontSize: 12,
-                              ),
+                              style: TextStyle(color: secondary, fontSize: 12),
                             ),
                           ],
                         ),
                       ),
+
                       if (puedeEliminar)
                         IconButton(
                           tooltip: 'Eliminar',
                           onPressed: () {
                             _eliminarPublicacion(publicacion);
                           },
-                          icon: const Icon(
+                          icon: Icon(
                             Icons.delete_outline,
-                            color: Colors.grey,
+                            color: secondary,
                             size: 20,
                           ),
                         ),
                     ],
                   ),
+
                   const SizedBox(height: 18),
+
                   Text(
                     publicacion.contenido,
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: onSurface,
                       fontSize: 15,
                       height: 1.45,
                     ),
@@ -364,16 +383,16 @@ class _ComunidadScreenState extends State<ComunidadScreen>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1115),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1D24),
         title: const Text('Comunidad'),
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: const Color(0xFF3B82F6),
-          labelColor: const Color(0xFF60A5FA),
-          unselectedLabelColor: Colors.white,
+          labelColor: const Color(0xFF3B82F6),
+          unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
           tabs: const [
             Tab(icon: Icon(Icons.campaign), text: 'Avisos'),
             Tab(icon: Icon(Icons.favorite), text: 'Peticiones'),
