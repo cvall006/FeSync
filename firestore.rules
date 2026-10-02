@@ -1,0 +1,445 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function rutaUsuario(userId) {
+      return /databases/$(database)/documents/usuarios_globales/$(userId);
+    }
+
+    function perfilExiste() {
+      return autenticado() &&
+        exists(rutaUsuario(uid()));
+    }
+
+    function perfil() {
+      return get(
+        rutaUsuario(uid())
+      ).data;
+    }
+
+    function tieneIglesia() {
+      return perfilExiste() &&
+        ('iglesiaId' in perfil()) &&
+        perfil().iglesiaId is string &&
+        perfil().iglesiaId.size() > 0;
+    }
+
+    function perteneceAIglesia(
+      iglesiaId
+    ) {
+      return tieneIglesia() &&
+        perfil().iglesiaId ==
+          iglesiaId;
+    }
+
+    function esAdmin(
+      iglesiaId
+    ) {
+      return perteneceAIglesia(
+        iglesiaId
+      ) &&
+        ('rolGlobal' in perfil()) &&
+        perfil().rolGlobal ==
+          'admin_iglesia';
+    }
+
+    function esAdminOLider(
+      iglesiaId
+    ) {
+      return perteneceAIglesia(
+        iglesiaId
+      ) &&
+        ('rolGlobal' in perfil()) &&
+        (
+          perfil().rolGlobal ==
+            'admin_iglesia' ||
+          perfil().rolGlobal ==
+            'lider_area'
+        );
+    }
+
+    /*
+     * ========================================================
+     * USUARIOS
+     * ========================================================
+     */
+
+    match /usuarios_globales/{userId} {
+
+      /*
+       * Cada usuario puede leer su propio perfil.
+       *
+       * Los miembros pueden leer perfiles de personas
+       * pertenecientes a su misma congregación.
+       */
+      allow get: if autenticado() &&
+        (
+          uid() == userId ||
+          (
+            tieneIglesia() &&
+            ('iglesiaId' in resource.data) &&
+            resource.data.iglesiaId ==
+              perfil().iglesiaId
+          )
+        );
+
+      /*
+       * Las consultas de miembros deben quedar limitadas
+       * a la congregación del usuario.
+       */
+      allow list: if autenticado() &&
+        tieneIglesia() &&
+        ('iglesiaId' in resource.data) &&
+        resource.data.iglesiaId ==
+          perfil().iglesiaId;
+
+      /*
+       * La creación/vinculación de perfiles ya no se
+       * realiza desde Flutter.
+       *
+       * Las Cloud Functions usan Admin SDK y no dependen
+       * de estas reglas.
+       */
+      allow create: if false;
+
+      /*
+       * PERFIL PROPIO
+       *
+       * Se permiten cambios de perfil, tema,
+       * notificaciones, token, fotografía, etc.,
+       * siempre que iglesiaId y rolGlobal permanezcan
+       * iguales.
+       */
+      allow update: if autenticado() &&
+        uid() == userId &&
+        ('iglesiaId' in resource.data) &&
+        ('rolGlobal' in resource.data) &&
+        ('iglesiaId' in request.resource.data) &&
+        ('rolGlobal' in request.resource.data) &&
+        request.resource.data.iglesiaId ==
+          resource.data.iglesiaId &&
+        request.resource.data.rolGlobal ==
+          resource.data.rolGlobal;
+
+      /*
+       * SALIR VOLUNTARIAMENTE
+       *
+       * Un miembro puede eliminar de sí mismo
+       * iglesiaId y rolGlobal.
+       *
+       * El administrador no puede hacerlo.
+       */
+      allow update: if autenticado() &&
+        uid() == userId &&
+        ('rolGlobal' in resource.data) &&
+        resource.data.rolGlobal !=
+          'admin_iglesia' &&
+        !(
+          'iglesiaId'
+          in request.resource.data
+        ) &&
+        !(
+          'rolGlobal'
+          in request.resource.data
+        );
+
+      /*
+       * ADMINISTRADOR MODIFICANDO OTRO MIEMBRO.
+       */
+      allow update: if autenticado() &&
+        uid() != userId &&
+        ('iglesiaId' in resource.data) &&
+        esAdmin(
+          resource.data.iglesiaId
+        ) &&
+        (
+          !request.resource.data
+            .diff(resource.data)
+            .affectedKeys()
+            .hasAny(['rolGlobal', 'iglesiaId']) ||
+          get(/databases/$(database)/documents/iglesias/$(resource.data.iglesiaId))
+            .data.get('adminUid', '') != userId
+        ) &&
+        (
+          /*
+           * Cambiar descripción o rol.
+           */
+          (
+            ('iglesiaId' in request.resource.data) &&
+            request.resource.data.iglesiaId ==
+              resource.data.iglesiaId &&
+            request.resource.data
+              .diff(resource.data)
+              .affectedKeys()
+              .hasOnly([
+                'descripcion',
+                'rolGlobal'
+              ]) &&
+            (
+              !request.resource.data
+                .diff(resource.data)
+                .affectedKeys()
+                .hasAny(['rolGlobal']) ||
+              request.resource.data.rolGlobal
+                in [
+                  'servidor',
+                  'lider_area'
+                ]
+            )
+          )
+          ||
+          /*
+           * Quitar de la congregación.
+           */
+          (
+            request.resource.data
+              .diff(resource.data)
+              .affectedKeys()
+              .hasOnly([
+                'iglesiaId',
+                'rolGlobal',
+                'descripcion'
+              ]) &&
+            !(
+              'iglesiaId'
+              in request.resource.data
+            ) &&
+            !(
+              'rolGlobal'
+              in request.resource.data
+            )
+          )
+        );
+
+      allow delete: if false;
+
+      /*
+       * ======================================================
+       * DISPOSITIVOS / TOKENS FCM
+       * ======================================================
+       */
+
+      match /dispositivos/{dispositivoId} {
+        allow read, create, update, delete:
+          if autenticado() &&
+          uid() == userId;
+      }
+    }
+
+    /*
+     * ========================================================
+     * IGLESIAS
+     * ========================================================
+     */
+
+    match /iglesias/{iglesiaId} {
+
+      /*
+       * Ya NO existe acceso especial para usuarios
+       * sin congregación.
+       */
+      allow read:
+        if perteneceAIglesia(
+          iglesiaId
+        );
+
+      /*
+       * La creación de congregaciones ahora ocurre
+       * exclusivamente mediante Cloud Functions.
+       */
+      allow create:
+        if false;
+
+      /*
+       * La configuración de una iglesia existente
+       * corresponde al administrador.
+       */
+      allow update:
+        if esAdmin(
+          iglesiaId
+        ) &&
+        !request.resource.data
+          .diff(resource.data)
+          .affectedKeys()
+          .hasAny(['adminUid']);
+
+      allow delete:
+        if false;
+
+      /*
+       * ======================================================
+       * AGENDA
+       * ======================================================
+       */
+
+      match /agenda_eventos/{eventoId} {
+        allow read:
+          if perteneceAIglesia(
+            iglesiaId
+          );
+
+        allow create, update, delete:
+          if esAdminOLider(
+            iglesiaId
+          );
+      }
+
+      /*
+       * ======================================================
+       * SERVIDORES
+       * ======================================================
+       */
+
+      match /turnos_servicio/{turnoId} {
+        allow read:
+          if perteneceAIglesia(
+            iglesiaId
+          );
+
+        allow create, update, delete:
+          if esAdminOLider(
+            iglesiaId
+          );
+      }
+
+      /*
+       * ======================================================
+       * CAPACITACIONES
+       * ======================================================
+       */
+
+      match /capacitaciones/{capacitacionId} {
+        allow read:
+          if perteneceAIglesia(
+            iglesiaId
+          );
+
+        allow create, update, delete:
+          if esAdminOLider(
+            iglesiaId
+          );
+      }
+
+      /*
+       * ======================================================
+       * ESCUELA BÍBLICA
+       * ======================================================
+       */
+
+      match /escuela_modulos/{moduloId} {
+        allow read:
+          if perteneceAIglesia(
+            iglesiaId
+          );
+
+        allow create, update, delete:
+          if esAdminOLider(
+            iglesiaId
+          );
+
+        match /evaluaciones/{evaluacionId} {
+          allow read:
+            if perteneceAIglesia(
+              iglesiaId
+            );
+
+          allow create, update, delete:
+            if esAdminOLider(
+              iglesiaId
+            );
+        }
+      }
+
+      /*
+       * ======================================================
+       * COMUNIDAD
+       * ======================================================
+       */
+
+      match /muro_comunidad/{publicacionId} {
+        allow read:
+          if perteneceAIglesia(
+            iglesiaId
+          );
+
+        allow create: if
+          perteneceAIglesia(
+            iglesiaId
+          ) &&
+          request.resource.data.autorUid ==
+            uid();
+
+        allow update, delete: if
+          perteneceAIglesia(
+            iglesiaId
+          ) &&
+          (
+            resource.data.autorUid ==
+              uid() ||
+            esAdminOLider(
+              iglesiaId
+            )
+          );
+      }
+
+      /*
+       * ======================================================
+       * ADORA LIVE
+       * ======================================================
+       */
+
+      match /adora_canciones/{cancionId} {
+        allow read:
+          if perteneceAIglesia(
+            iglesiaId
+          );
+
+        allow create, update, delete:
+          if esAdminOLider(
+            iglesiaId
+          );
+      }
+
+      match /adora_eventos/{eventoId} {
+        allow read:
+          if perteneceAIglesia(
+            iglesiaId
+          );
+
+        allow create, update, delete:
+          if esAdminOLider(
+            iglesiaId
+          );
+      }
+
+      /*
+       * Ninguna otra subcolección queda abierta
+       * por defecto.
+       */
+      match /{documento=**} {
+        allow read, write:
+          if false;
+      }
+    }
+
+    /*
+     * ========================================================
+     * TODO LO DEMÁS
+     * ========================================================
+     */
+
+    match /{documento=**} {
+      allow read, write:
+        if false;
+    }
+  }
+}

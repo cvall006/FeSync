@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/models/app_models.dart';
@@ -532,6 +533,9 @@ class AdoraSetlistScreen extends StatelessWidget {
     required this.tituloEvento,
   });
 
+  FirebaseFunctions get _functions =>
+      FirebaseFunctions.instanceFor(region: 'southamerica-west1');
+
   bool get _puedeGestionar =>
       usuario.rolGlobal == 'admin_iglesia' || usuario.rolGlobal == 'lider_area';
 
@@ -652,21 +656,12 @@ class AdoraSetlistScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _actualizarAsistencia(
-    List<String> asistentesActuales,
-    bool asistir,
-  ) async {
-    final nuevaLista = List<String>.from(asistentesActuales);
-
-    nuevaLista.remove(usuario.uid);
-
-    nuevaLista.remove(usuario.nombre);
-
-    if (asistir) {
-      nuevaLista.add(usuario.uid);
-    }
-
-    await _eventoRef.update({'asistentesUids': nuevaLista});
+  Future<void> _actualizarAsistencia(bool asistir) async {
+    await _functions.httpsCallable('actualizarAsistenciaAdoraSegura').call({
+      'iglesiaId': usuario.iglesiaId,
+      'eventoId': eventoId,
+      'asistir': asistir,
+    });
   }
 
   Future<Map<String, String>> _obtenerNombresUsuarios() async {
@@ -767,8 +762,30 @@ class AdoraSetlistScreen extends StatelessWidget {
                             Switch(
                               value: voyAAsistir,
                               activeTrackColor: const Color(0xFF3B82F6),
-                              onChanged: (valor) {
-                                _actualizarAsistencia(asistentes, valor);
+                              onChanged: (valor) async {
+                                try {
+                                  await _actualizarAsistencia(valor);
+                                } on FirebaseFunctionsException catch (error) {
+                                  if (!context.mounted) return;
+
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        error.message ?? 'No fue posible actualizar tu asistencia.',
+                                      ),
+                                    ),
+                                  );
+                                } catch (_) {
+                                  if (!context.mounted) return;
+
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'No fue posible actualizar tu asistencia.',
+                                      ),
+                                    ),
+                                  );
+                                }
                               },
                             ),
                           ],

@@ -1,0 +1,41 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    /*
+     * Fotografías de perfil.
+     *
+     * Cada usuario escribe únicamente dentro de su carpeta.
+     * La lectura requiere autenticación porque otros miembros
+     * necesitan mostrar los avatares.
+     */
+    match /usuarios/{userId}/{archivo} {
+      allow read:
+        if autenticado();
+
+      allow write:
+        if autenticado() &&
+        request.auth.uid == userId &&
+        (
+          request.resource == null ||
+          (
+            request.resource.size < 5 * 1024 * 1024 &&
+            request.resource.contentType.matches('image/.*')
+          )
+        );
+    }
+
+    /*
+     * No existen todavía otros uploads que necesitemos
+     * exponer desde el cliente.
+     */
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

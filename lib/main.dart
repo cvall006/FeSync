@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -10,10 +12,15 @@ import 'core/providers/theme_provider.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/notification_service.dart';
 import 'firebase_options.dart';
+import 'modules/adora_live/adora_live_screen.dart';
+import 'modules/agenda/agenda_screen.dart';
 import 'modules/auth/auth_screen.dart';
 import 'modules/auth/onboarding_iglesia_screen.dart';
+import 'modules/capacitaciones/capacitaciones_screen.dart';
 import 'modules/comunidad/comunidad_screen.dart';
 import 'modules/dashboard/dashboard_screen.dart';
+import 'modules/escuela/escuela_screen.dart';
+import 'modules/servidores/servidores_screen.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -136,7 +143,14 @@ class _RootGateState extends State<RootGate> {
 
   UsuarioModel? _perfil;
 
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+  _perfilSubscription;
+
+  String? _uidEscuchado;
+
   bool _cargando = true;
+
+  bool _tapWebProcesado = false;
 
   @override
   void initState() {
@@ -147,18 +161,153 @@ class _RootGateState extends State<RootGate> {
     _revisarSesion();
   }
 
+  @override
+  void dispose() {
+    _perfilSubscription?.cancel();
+
+    super.dispose();
+  }
+
+  Future<void> _cancelarEscuchaPerfil() async {
+    await _perfilSubscription?.cancel();
+
+    _perfilSubscription = null;
+    _uidEscuchado = null;
+  }
+
+  void _escucharPerfilUsuario(String uid) {
+    if (_uidEscuchado == uid && _perfilSubscription != null) {
+      return;
+    }
+
+    _perfilSubscription?.cancel();
+
+    _uidEscuchado = uid;
+
+    _perfilSubscription = FirebaseFirestore.instance
+        .collection('usuarios_globales')
+        .doc(uid)
+        .snapshots()
+        .listen(
+          (snapshot) {
+            if (!mounted) {
+              return;
+            }
+
+            final data = snapshot.data();
+
+            final perfilAnterior = _perfil;
+
+            UsuarioModel? perfilNuevo;
+
+            if (snapshot.exists && data != null) {
+              perfilNuevo = UsuarioModel.fromMap(data, snapshot.id);
+            }
+
+            final iglesiaAnterior = perfilAnterior?.iglesiaId ?? '';
+
+            final iglesiaNueva = perfilNuevo?.iglesiaId ?? '';
+
+            final rolAnterior = perfilAnterior?.rolGlobal ?? '';
+
+            final rolNuevo = perfilNuevo?.rolGlobal ?? '';
+
+            final cambioVinculacion =
+                iglesiaAnterior != iglesiaNueva || rolAnterior != rolNuevo;
+
+            if (!cambioVinculacion) {
+              return;
+            }
+
+            setState(() {
+              _perfil = perfilNuevo;
+            });
+
+            /*
+         * Si el usuario fue desvinculado,
+         * cambió de congregación o cambió
+         * su rol mientras tenía un módulo
+         * abierto, regresamos a la ruta
+         * principal para que RootGate
+         * muestre el estado correcto.
+         */
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              final navigator = navigatorKey.currentState;
+
+              if (navigator == null) {
+                return;
+              }
+
+              navigator.popUntil((route) => route.isFirst);
+            });
+          },
+          onError: (error) {
+            debugPrint(
+              'No se pudo escuchar '
+              'el perfil del usuario: '
+              '$error',
+            );
+          },
+        );
+  }
+
+  String? _claveContadorDesdeTipo(String? tipo) {
+    switch (tipo) {
+      case 'muro_comunidad':
+        return 'comunidades';
+
+      case 'agenda':
+        return 'agenda';
+
+      case 'servidores':
+        return 'servidores';
+
+      case 'adora_live':
+        return 'adoraLive';
+
+      case 'capacitaciones':
+        return 'capacitaciones';
+
+      case 'escuela':
+        return 'escuela';
+
+      default:
+        return null;
+    }
+  }
+
+  Future<void> _limpiarContadorNotificacion(
+    UsuarioModel perfil,
+    String? tipo,
+  ) async {
+    final clave = _claveContadorDesdeTipo(tipo);
+
+    if (clave == null) {
+      return;
+    }
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('usuarios_globales')
+          .doc(perfil.uid)
+          .update({'notificacionesPendientes.$clave': 0});
+    } catch (error) {
+      debugPrint(
+        'No se pudo limpiar '
+        'notificación pendiente '
+        '$clave: $error',
+      );
+    }
+  }
+
   Future<bool> _manejarTapNotificacion(Map<String, dynamic> data) async {
     final perfil = _perfil;
 
-    if (perfil == null) {
+    if (perfil == null || perfil.iglesiaId.isEmpty) {
       return false;
     }
 
-    final tipo = data['tipo']?.toString();
-
-    if (tipo != 'muro_comunidad') {
-      return true;
-    }
+    final tipo = data['tipo']?.toString().trim();
 
     final navigator = navigatorKey.currentState;
 
@@ -166,11 +315,89 @@ class _RootGateState extends State<RootGate> {
       return false;
     }
 
-    await navigator.push(
-      MaterialPageRoute(builder: (_) => ComunidadScreen(usuario: perfil)),
-    );
+    await _limpiarContadorNotificacion(perfil, tipo);
 
-    return true;
+    switch (tipo) {
+      case 'muro_comunidad':
+        await navigator.push(
+          MaterialPageRoute(builder: (_) => ComunidadScreen(usuario: perfil)),
+        );
+
+        return true;
+
+      case 'agenda':
+        await navigator.push(
+          MaterialPageRoute(builder: (_) => AgendaScreen(usuario: perfil)),
+        );
+
+        return true;
+
+      case 'servidores':
+        await navigator.push(
+          MaterialPageRoute(builder: (_) => ServidoresScreen(usuario: perfil)),
+        );
+
+        return true;
+
+      case 'adora_live':
+        await navigator.push(
+          MaterialPageRoute(builder: (_) => AdoraLiveScreen(usuario: perfil)),
+        );
+
+        return true;
+
+      case 'capacitaciones':
+        await navigator.push(
+          MaterialPageRoute(
+            builder: (_) => CapacitacionesScreen(usuario: perfil),
+          ),
+        );
+
+        return true;
+
+      case 'escuela':
+        await navigator.push(
+          MaterialPageRoute(builder: (_) => EscuelaScreen(usuario: perfil)),
+        );
+
+        return true;
+
+      default:
+        debugPrint(
+          'Tipo de notificación '
+          'no reconocido: $tipo',
+        );
+
+        return true;
+    }
+  }
+
+  Future<void> _procesarNotificacionWeb() async {
+    if (!kIsWeb || _tapWebProcesado) {
+      return;
+    }
+
+    final uri = Uri.base;
+
+    if (uri.queryParameters['fesyncNotification'] != '1') {
+      return;
+    }
+
+    final tipo = uri.queryParameters['tipo'];
+
+    if (tipo == null || tipo.trim().isEmpty) {
+      _tapWebProcesado = true;
+
+      return;
+    }
+
+    final data = <String, dynamic>{...uri.queryParameters};
+
+    _tapWebProcesado = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _manejarTapNotificacion(data);
+    });
   }
 
   Future<void> _revisarSesion() async {
@@ -182,45 +409,60 @@ class _RootGateState extends State<RootGate> {
 
     final user = _authService.currentUser;
 
-    if (user != null) {
-      final perfil = await _authService.obtenerPerfilUsuario(user.uid);
+    if (user == null) {
+      await _cancelarEscuchaPerfil();
 
-      if (perfil != null) {
-        try {
-          final doc = await FirebaseFirestore.instance
-              .collection('usuarios_globales')
-              .doc(user.uid)
-              .get();
-
-          final data = doc.data();
-
-          final modoOscuro = data?['modoOscuro'];
-
-          if (modoOscuro is bool && mounted) {
-            context.read<ThemeProvider>().establecerModoOscuro(modoOscuro);
-          }
-        } catch (error) {
-          debugPrint('No se pudo leer preferencia de tema: $error');
-        }
-      }
-
-      if (mounted) {
-        setState(() {
-          _perfil = perfil;
-        });
-      }
-
-      if (perfil != null) {
-        await NotificationService.instance.configurarUsuario(user.uid);
-
-        await NotificationService.instance.reanudarTapPendiente();
-      }
-    } else {
       if (mounted) {
         setState(() {
           _perfil = null;
+          _cargando = false;
         });
       }
+
+      return;
+    }
+
+    final perfil = await _authService.obtenerPerfilUsuario(user.uid);
+
+    _escucharPerfilUsuario(user.uid);
+
+    if (perfil != null) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('usuarios_globales')
+            .doc(user.uid)
+            .get();
+
+        final data = doc.data();
+
+        final modoOscuro = data?['modoOscuro'];
+
+        if (modoOscuro is bool && mounted) {
+          context.read<ThemeProvider>().establecerModoOscuro(modoOscuro);
+        }
+      } catch (error) {
+        debugPrint(
+          'No se pudo leer '
+          'preferencia de tema: '
+          '$error',
+        );
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _perfil = perfil;
+      });
+    }
+
+    /*
+     * Solo vinculamos FCM cuando el usuario
+     * pertenece realmente a una iglesia.
+     */
+    if (perfil != null && perfil.iglesiaId.isNotEmpty) {
+      await NotificationService.instance.configurarUsuario(user.uid);
+
+      await NotificationService.instance.reanudarTapPendiente();
     }
 
     if (mounted) {
@@ -228,10 +470,16 @@ class _RootGateState extends State<RootGate> {
         _cargando = false;
       });
     }
+
+    if (_perfil != null && _perfil!.iglesiaId.isNotEmpty) {
+      await _procesarNotificacionWeb();
+    }
   }
 
   Future<void> _cerrarSesion() async {
     await NotificationService.instance.desvincularUsuario();
+
+    await _cancelarEscuchaPerfil();
 
     await _authService.cerrarSesion();
 

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -16,6 +17,10 @@ class ServidoresScreen extends StatefulWidget {
 }
 
 class _ServidoresScreenState extends State<ServidoresScreen> {
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
+    region: 'southamerica-west1',
+  );
+
   CollectionReference get _turnosRef => FirebaseFirestore.instance
       .collection('iglesias')
       .doc(widget.usuario.iglesiaId)
@@ -475,21 +480,37 @@ class _ServidoresScreenState extends State<ServidoresScreen> {
     AsignacionPuesto asig,
     String nuevoEstado,
   ) async {
-    final listaActualizada = turno.asignaciones.map((a) {
-      if (a.puesto == asig.puesto && a.usuarioUid == asig.usuarioUid) {
-        return AsignacionPuesto(
-          puesto: a.puesto,
-          usuarioUid: a.usuarioUid,
-          nombreUsuario: a.nombreUsuario,
-          area: a.area,
-          estado: nuevoEstado,
-        ).toMap();
+    try {
+      await _functions.httpsCallable('actualizarEstadoTurnoSeguro').call({
+        'iglesiaId': widget.usuario.iglesiaId,
+        'turnoId': turno.id,
+        'puesto': asig.puesto,
+        'usuarioUid': asig.usuarioUid,
+        'estado': nuevoEstado,
+      });
+    } on FirebaseFunctionsException catch (error) {
+      if (!mounted) {
+        return;
       }
 
-      return a.toMap();
-    }).toList();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error.message ?? 'No fue posible actualizar la asignación.',
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
 
-    await _turnosRef.doc(turno.id).update({'asignaciones': listaActualizada});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No fue posible actualizar la asignación.'),
+        ),
+      );
+    }
   }
 
   Future<void> _compartirPorWhatsApp(TurnoServicioModel turno) async {

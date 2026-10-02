@@ -20,12 +20,12 @@ class UsuarioModel {
   factory UsuarioModel.fromMap(Map<String, dynamic> map, String docId) {
     return UsuarioModel(
       uid: docId,
-      email: map['email'] ?? '',
-      nombre: map['nombre'] ?? '',
-      iglesiaId: map['iglesiaId'] ?? '',
-      rolGlobal: map['rolGlobal'] ?? 'servidor',
-      fotoUrl: map['fotoUrl'],
-      descripcion: map['descripcion'],
+      email: map['email']?.toString() ?? '',
+      nombre: map['nombre']?.toString() ?? '',
+      iglesiaId: map['iglesiaId']?.toString() ?? '',
+      rolGlobal: map['rolGlobal']?.toString() ?? '',
+      fotoUrl: map['fotoUrl']?.toString(),
+      descripcion: map['descripcion']?.toString(),
     );
   }
 
@@ -61,11 +61,11 @@ class IglesiaModel {
   factory IglesiaModel.fromMap(Map<String, dynamic> map, String docId) {
     return IglesiaModel(
       id: docId,
-      nombre: map['nombre'] ?? '',
-      codigoAcceso: map['codigoAcceso'] ?? '',
-      adminUid: map['adminUid'] ?? '',
-      logoUrl: map['logoUrl'],
-      descripcion: map['descripcion'],
+      nombre: map['nombre']?.toString() ?? '',
+      codigoAcceso: map['codigoAcceso']?.toString() ?? '',
+      adminUid: map['adminUid']?.toString() ?? '',
+      logoUrl: map['logoUrl']?.toString(),
+      descripcion: map['descripcion']?.toString(),
     );
   }
 }

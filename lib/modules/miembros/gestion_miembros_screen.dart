@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -15,6 +16,12 @@ class GestionMiembrosScreen extends StatefulWidget {
 }
 
 class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
+    region: 'southamerica-west1',
+  );
+
+  bool _transfiriendo = false;
+
   DocumentReference<Map<String, dynamic>> get _iglesiaRef => FirebaseFirestore
       .instance
       .collection('iglesias')
@@ -37,12 +44,93 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
     );
   }
 
-  Future<void> _editarMiembro(String uid, Map<String, dynamic> miembro) async {
+  Future<void> _transferirAdministracion(
+    String uid,
+    Map<String, dynamic> miembro,
+  ) async {
+    if (!_esAdmin || uid == widget.usuario.uid || _transfiriendo) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _transfiriendo = true);
+
+    try {
+      final confirmar = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Transferir administración'),
+          content: Text(
+            '¿Confirmas la transferencia a ${miembro['nombre'] ?? 'este miembro'}?\n\n'
+            'El miembro seleccionado pasará a ser el administrador principal '
+            'y tu cuenta quedará como líder de área.\n\n'
+            'Perderás el acceso a la gestión de miembros y configuración de la iglesia.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Confirmar transferencia'),
+            ),
+          ],
+        ),
+      );
+
+      if (!mounted || confirmar != true) return;
+
+      await _functions.httpsCallable('transferirAdministracionIglesia').call({
+        'iglesiaId': widget.usuario.iglesiaId,
+        'nuevoAdminUid': uid,
+      });
+
+      // RootGate puede cerrar esta pantalla antes de recibir la respuesta.
+      if (messenger.mounted) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Administración transferida. Tu cuenta ahora es líder de área.',
+            ),
+          ),
+        );
+      }
+    } on FirebaseFunctionsException catch (error) {
+      if (messenger.mounted) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              error.message ?? 'No fue posible transferir la administración.',
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      if (messenger.mounted) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('No fue posible transferir la administración.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _transfiriendo = false);
+    }
+  }
+
+  Future<void> _editarMiembro(
+    String uid,
+    Map<String, dynamic> miembro, {
+    required bool esAdminPrincipal,
+  }) async {
     final descripcionCtrl = TextEditingController(
       text: miembro['descripcion']?.toString() ?? '',
     );
 
-    String rolSeleccionado = miembro['rolGlobal']?.toString() ?? 'servidor';
+    final puedeCambiarRol = uid != widget.usuario.uid && !esAdminPrincipal;
+    final rolActual = miembro['rolGlobal']?.toString();
+    String? rolSeleccionado =
+        const ['servidor', 'lider_area'].contains(rolActual) ? rolActual : null;
 
     final resultado = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
@@ -95,6 +183,11 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
 
                     DropdownButtonFormField<String>(
                       initialValue: rolSeleccionado,
+                      hint: Text(
+                        puedeCambiarRol
+                            ? 'Seleccionar nuevo rol'
+                            : 'Rol gestionado por transferencia',
+                      ),
                       decoration: const InputDecoration(
                         labelText: 'Rol en la iglesia',
                         prefixIcon: Icon(Icons.badge),
@@ -108,20 +201,18 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
                           value: 'lider_area',
                           child: Text('Líder de Área'),
                         ),
-                        DropdownMenuItem(
-                          value: 'admin_iglesia',
-                          child: Text('Administrador'),
-                        ),
                       ],
-                      onChanged: (valor) {
-                        if (valor == null) {
-                          return;
-                        }
+                      onChanged: !puedeCambiarRol
+                          ? null
+                          : (valor) {
+                              if (valor == null) {
+                                return;
+                              }
 
-                        setModalState(() {
-                          rolSeleccionado = valor;
-                        });
-                      },
+                              setModalState(() {
+                                rolSeleccionado = valor;
+                              });
+                            },
                     ),
 
                     const SizedBox(height: 24),
@@ -137,7 +228,8 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
                         onPressed: () {
                           Navigator.pop(ctx, {
                             'descripcion': descripcionCtrl.text.trim(),
-                            'rolGlobal': rolSeleccionado,
+                            if (puedeCambiarRol && rolSeleccionado != null)
+                              'rolGlobal': rolSeleccionado,
                           });
                         },
                         icon: const Icon(Icons.save),
@@ -162,10 +254,7 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
       return;
     }
 
-    await _usuariosRef.doc(uid).update({
-      'descripcion': resultado['descripcion'],
-      'rolGlobal': resultado['rolGlobal'],
-    });
+    await _usuariosRef.doc(uid).update(resultado);
 
     if (!mounted) {
       return;
@@ -317,6 +406,8 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
           }
 
           final iglesia = iglesiaSnapshot.data!.data() ?? {};
+
+          final adminPrincipalUid = iglesia['adminUid'];
 
           final codigo = iglesia['codigoAcceso']?.toString() ?? '';
 
@@ -511,18 +602,45 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
 
                               IconButton(
                                 tooltip: 'Editar miembro',
-                                onPressed: () {
-                                  _editarMiembro(doc.id, miembro);
-                                },
+                                onPressed: _transfiriendo
+                                    ? null
+                                    : () {
+                                        _editarMiembro(
+                                          doc.id,
+                                          miembro,
+                                          esAdminPrincipal:
+                                              doc.id == adminPrincipalUid,
+                                        );
+                                      },
                                 icon: Icon(
                                   Icons.manage_accounts,
                                   color: textoSecundario,
                                 ),
                               ),
 
+                              if (_esAdmin &&
+                                  adminPrincipalUid == widget.usuario.uid &&
+                                  doc.id != widget.usuario.uid)
+                                IconButton(
+                                  tooltip: 'Transferir administración',
+                                  onPressed: _transfiriendo
+                                      ? null
+                                      : () => _transferirAdministracion(
+                                          doc.id,
+                                          miembro,
+                                        ),
+                                  icon: Icon(
+                                    Icons.swap_horiz,
+                                    color: textoSecundario,
+                                  ),
+                                ),
+
                               IconButton(
                                 tooltip: 'Quitar de la congregación',
-                                onPressed: doc.id == widget.usuario.uid
+                                onPressed:
+                                    _transfiriendo ||
+                                        doc.id == widget.usuario.uid ||
+                                        doc.id == adminPrincipalUid
                                     ? null
                                     : () {
                                         _quitarMiembro(doc.id, miembro);

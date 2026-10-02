@@ -17,34 +17,69 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-messaging.onBackgroundMessage((payload) => {
-  console.log(
-    '[firebase-messaging-sw.js] Mensaje background:',
-    payload
+function crearUrlNotificacion(data) {
+  const params = new URLSearchParams();
+
+  params.set(
+    'fesyncNotification',
+    '1'
   );
 
-  const notification = payload.notification || {};
-
-  const title =
-    notification.title || 'FeSync';
-
-  const options = {
-    body:
-      notification.body ||
-      'Tienes una nueva notificación.',
-    icon: '/icons/Icon-192.png',
-    badge: '/icons/Icon-192.png',
-    data: {
-      url: '/',
-      ...payload.data,
-    },
-  };
-
-  return self.registration.showNotification(
-    title,
-    options
+  Object.entries(data || {}).forEach(
+    ([key, value]) => {
+      if (
+        value !== null &&
+        value !== undefined
+      ) {
+        params.set(
+          key,
+          String(value)
+        );
+      }
+    }
   );
-});
+
+  return `/?${params.toString()}`;
+}
+
+messaging.onBackgroundMessage(
+  (payload) => {
+    console.log(
+      '[firebase-messaging-sw.js] Mensaje background:',
+      payload
+    );
+
+    const notification =
+      payload.notification || {};
+
+    const data =
+      payload.data || {};
+
+    const title =
+      notification.title || 'FeSync';
+
+    const options = {
+      body:
+        notification.body ||
+        'Tienes una nueva notificación.',
+      icon:
+        '/icons/Icon-192.png',
+      badge:
+        '/icons/Icon-192.png',
+      data: {
+        ...data,
+        url:
+          crearUrlNotificacion(data),
+      },
+    };
+
+    return self.registration
+      .showNotification(
+        title,
+        options
+      );
+  }
+);
 
 self.addEventListener(
   'notificationclick',
@@ -52,7 +87,8 @@ self.addEventListener(
     event.notification.close();
 
     const targetUrl =
-      event.notification.data?.url || '/';
+      event.notification.data?.url ||
+      '/';
 
     event.waitUntil(
       clients
@@ -60,27 +96,41 @@ self.addEventListener(
           type: 'window',
           includeUncontrolled: true,
         })
-        .then((clientList) => {
-          for (const client of clientList) {
-            if (
-              'focus' in client &&
-              client.url.startsWith(
-                self.location.origin
-              )
+        .then(
+          async (clientList) => {
+            for (
+              const client
+              of clientList
             ) {
-              client.navigate(targetUrl);
-              return client.focus();
+              if (
+                'focus' in client &&
+                client.url.startsWith(
+                  self.location.origin
+                )
+              ) {
+                if (
+                  'navigate' in client
+                ) {
+                  await client.navigate(
+                    targetUrl
+                  );
+                }
+
+                return client.focus();
+              }
             }
-          }
 
-          if (clients.openWindow) {
-            return clients.openWindow(
-              targetUrl
-            );
-          }
+            if (
+              clients.openWindow
+            ) {
+              return clients.openWindow(
+                targetUrl
+              );
+            }
 
-          return undefined;
-        })
+            return undefined;
+          }
+        )
     );
   }
 );

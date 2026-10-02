@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
@@ -8,7 +9,12 @@ import '../models/app_models.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
+    region: 'southamerica-west1',
+  );
 
   static Future<void>? _googleInitialization;
 
@@ -33,6 +39,7 @@ class AuthService {
   Future<UserCredential?> iniciarSesionConGoogle() async {
     if (kIsWeb) {
       final googleProvider = GoogleAuthProvider();
+
       return await _auth.signInWithPopup(googleProvider);
     }
 
@@ -75,6 +82,40 @@ class AuthService {
     return UsuarioModel.fromMap(doc.data()!, uid);
   }
 
+  String _mensajeFuncion(FirebaseFunctionsException error) {
+    final mensaje = error.message?.trim();
+
+    if (mensaje != null && mensaje.isNotEmpty) {
+      return mensaje;
+    }
+
+    switch (error.code) {
+      case 'unauthenticated':
+        return 'Debes iniciar sesión.';
+
+      case 'invalid-argument':
+        return 'Los datos ingresados no son válidos.';
+
+      case 'not-found':
+        return 'No se encontró la congregación.';
+
+      case 'already-exists':
+        return 'Ese código ya está en uso.';
+
+      case 'failed-precondition':
+        return 'No fue posible completar esta operación en el estado actual de tu cuenta.';
+
+      case 'permission-denied':
+        return 'No tienes permisos para realizar esta operación.';
+
+      case 'unavailable':
+        return 'El servicio no está disponible temporalmente. Inténtalo nuevamente.';
+
+      default:
+        return 'No fue posible completar la operación.';
+    }
+  }
+
   Future<String?> vincularConCodigo({
     required String uid,
     required String email,
@@ -83,34 +124,29 @@ class AuthService {
     String? fotoUrl,
     String? descripcionUsuario,
   }) async {
-    final query = await _firestore
-        .collection('iglesias')
-        .where('codigoAcceso', isEqualTo: codigo.trim().toUpperCase())
-        .limit(1)
-        .get();
+    final user = _auth.currentUser;
 
-    if (query.docs.isEmpty) {
-      return 'El código ingresado no existe.';
+    if (user == null || user.uid != uid) {
+      return 'Debes iniciar sesión nuevamente.';
     }
 
-    final iglesiaId = query.docs.first.id;
+    try {
+      final callable = _functions.httpsCallable('vincularUsuarioConCodigo');
 
-    final nuevoUsuario = UsuarioModel(
-      uid: uid,
-      email: email,
-      nombre: nombre,
-      iglesiaId: iglesiaId,
-      rolGlobal: 'servidor',
-      fotoUrl: fotoUrl,
-      descripcion: descripcionUsuario,
-    );
+      await callable.call({
+        'codigo': codigo.trim().toUpperCase(),
+        'nombre': nombre.trim(),
+        'email': email.trim(),
+        'fotoUrl': fotoUrl?.trim() ?? '',
+        'descripcion': descripcionUsuario?.trim() ?? '',
+      });
 
-    await _firestore
-        .collection('usuarios_globales')
-        .doc(uid)
-        .set(nuevoUsuario.toMap());
-
-    return null;
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return _mensajeFuncion(e);
+    } catch (error) {
+      return 'No fue posible vincular tu cuenta: $error';
+    }
   }
 
   Future<String?> registrarNuevaIglesia({
@@ -123,58 +159,38 @@ class AuthService {
     String? fotoUrlAdmin,
     String? descripcionAdmin,
   }) async {
-    final codigoLimpio = codigoDeseado.trim().toUpperCase();
+    final user = _auth.currentUser;
 
-    final check = await _firestore
-        .collection('iglesias')
-        .where('codigoAcceso', isEqualTo: codigoLimpio)
-        .limit(1)
-        .get();
-
-    if (check.docs.isNotEmpty) {
-      return 'Ese código ya está en uso.';
+    if (user == null || user.uid != uid) {
+      return 'Debes iniciar sesión nuevamente.';
     }
 
-    final nuevaIglesiaRef = _firestore.collection('iglesias').doc();
+    try {
+      final callable = _functions.httpsCallable('registrarNuevaIglesiaSegura');
 
-    await nuevaIglesiaRef.set({
-      'nombre': nombreIglesia.trim(),
-      'descripcion': descripcionIglesia.trim(),
-      'codigoAcceso': codigoLimpio,
-      'adminUid': uid,
-      'logoUrl': '',
-      'modulosActivos': {
-        'servidores': true,
-        'adoraLive': true,
-        'agenda': true,
-        'escuela': false,
-        'comunidades': false,
-      },
-      'fechaCreacion': FieldValue.serverTimestamp(),
-    });
+      await callable.call({
+        'email': email.trim(),
+        'nombreAdmin': nombreAdmin.trim(),
+        'nombreIglesia': nombreIglesia.trim(),
+        'codigo': codigoDeseado.trim().toUpperCase(),
+        'descripcionIglesia': descripcionIglesia.trim(),
+        'fotoUrl': fotoUrlAdmin?.trim() ?? '',
+        'descripcionAdmin': descripcionAdmin?.trim() ?? '',
+      });
 
-    final adminUser = UsuarioModel(
-      uid: uid,
-      email: email,
-      nombre: nombreAdmin,
-      iglesiaId: nuevaIglesiaRef.id,
-      rolGlobal: 'admin_iglesia',
-      fotoUrl: fotoUrlAdmin,
-      descripcion: descripcionAdmin,
-    );
-
-    await _firestore
-        .collection('usuarios_globales')
-        .doc(uid)
-        .set(adminUser.toMap());
-
-    return null;
+      return null;
+    } on FirebaseFunctionsException catch (e) {
+      return _mensajeFuncion(e);
+    } catch (error) {
+      return 'No fue posible crear la congregación: $error';
+    }
   }
 
   Future<void> cerrarSesion() async {
     if (_googleSignInNativoDisponible) {
       try {
         await _inicializarGoogleSignIn();
+
         await GoogleSignIn.instance.signOut();
       } catch (_) {
         // Firebase Auth igualmente se cerrará más abajo.

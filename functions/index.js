@@ -31,7 +31,165 @@ const db = getFirestore();
 
 /*
  * ============================================================
- * DESTINATARIOS / TOKENS FCM
+ * USUARIOS
+ * ============================================================
+ */
+
+function limpiarUids(uids) {
+  return [
+    ...new Set(
+      (uids ?? [])
+        .map((uid) => String(uid ?? '').trim())
+        .filter((uid) => uid.length > 0),
+    ),
+  ];
+}
+
+async function obtenerUsuariosIglesia(iglesiaId) {
+  const snapshot = await db
+    .collection('usuarios_globales')
+    .where('iglesiaId', '==', iglesiaId)
+    .get();
+
+  return snapshot.docs;
+}
+
+async function obtenerUsuariosPorUids(
+  iglesiaId,
+  uids,
+) {
+  const uidsUnicos = limpiarUids(uids);
+
+  if (uidsUnicos.length === 0) {
+    return [];
+  }
+
+  const resultados = await Promise.all(
+    uidsUnicos.map(async (uid) => {
+      const doc = await db
+        .collection('usuarios_globales')
+        .doc(uid)
+        .get();
+
+      if (!doc.exists) {
+        console.log(
+          `Usuario ${uid} no existe.`,
+        );
+
+        return null;
+      }
+
+      const data = doc.data();
+
+      if (
+        data?.iglesiaId?.toString() !==
+        iglesiaId
+      ) {
+        console.log(
+          `Usuario ${uid} no pertenece a iglesia ${iglesiaId}.`,
+        );
+
+        return null;
+      }
+
+      return doc;
+    }),
+  );
+
+  return resultados.filter(
+    (doc) => doc !== null,
+  );
+}
+
+/*
+ * ============================================================
+ * CONTADORES PENDIENTES
+ * ============================================================
+ */
+
+async function incrementarContadores({
+  usuarios,
+  modulo,
+  cantidad = 1,
+}) {
+  if (
+    !usuarios ||
+    usuarios.length === 0
+  ) {
+    return;
+  }
+
+  /*
+   * Firestore admite hasta 500 operaciones
+   * por batch. Dejamos margen usando 400.
+   */
+  const tamanoBloque = 400;
+
+  for (
+    let inicio = 0;
+    inicio < usuarios.length;
+    inicio += tamanoBloque
+  ) {
+    const bloque = usuarios.slice(
+      inicio,
+      inicio + tamanoBloque,
+    );
+
+    const batch = db.batch();
+
+    for (const usuarioDoc of bloque) {
+      batch.update(
+        usuarioDoc.ref,
+        {
+          [`notificacionesPendientes.${modulo}`]:
+            FieldValue.increment(cantidad),
+        },
+      );
+    }
+
+    await batch.commit();
+  }
+
+  console.log(
+    `Pendientes ${modulo}: +${cantidad} para ${usuarios.length} usuario(s).`,
+  );
+}
+
+async function incrementarPendientesIglesia(
+  iglesiaId,
+  modulo,
+) {
+  const usuarios =
+    await obtenerUsuariosIglesia(
+      iglesiaId,
+    );
+
+  await incrementarContadores({
+    usuarios,
+    modulo,
+  });
+}
+
+async function incrementarPendientesUsuarios(
+  iglesiaId,
+  uids,
+  modulo,
+) {
+  const usuarios =
+    await obtenerUsuariosPorUids(
+      iglesiaId,
+      uids,
+    );
+
+  await incrementarContadores({
+    usuarios,
+    modulo,
+  });
+}
+
+/*
+ * ============================================================
+ * TOKENS FCM
  * ============================================================
  */
 
@@ -48,11 +206,7 @@ async function agregarTokensUsuario(
   const dispositivosSnapshot =
     await usuarioDoc.ref
       .collection('dispositivos')
-      .where(
-        'activo',
-        '==',
-        true,
-      )
+      .where('activo', '==', true)
       .get();
 
   for (
@@ -85,7 +239,8 @@ async function agregarTokensUsuario(
   }
 
   /*
-   * Compatibilidad con instalaciones antiguas.
+   * Compatibilidad temporal con
+   * instalaciones antiguas.
    */
   const legacyToken =
     usuario.fcmToken
@@ -112,20 +267,41 @@ async function agregarTokensUsuario(
 async function obtenerDestinatarios(
   iglesiaId,
 ) {
-  const usuariosSnapshot =
-    await db
-      .collection('usuarios_globales')
-      .where(
-        'iglesiaId',
-        '==',
-        iglesiaId,
-      )
-      .get();
+  const usuarios =
+    await obtenerUsuariosIglesia(
+      iglesiaId,
+    );
 
   const tokens = new Map();
 
   await Promise.all(
-    usuariosSnapshot.docs.map(
+    usuarios.map(
+      async (usuarioDoc) => {
+        await agregarTokensUsuario(
+          usuarioDoc,
+          tokens,
+        );
+      },
+    ),
+  );
+
+  return [...tokens.values()];
+}
+
+async function obtenerDestinatariosPorUids(
+  iglesiaId,
+  uids,
+) {
+  const usuarios =
+    await obtenerUsuariosPorUids(
+      iglesiaId,
+      uids,
+    );
+
+  const tokens = new Map();
+
+  await Promise.all(
+    usuarios.map(
       async (usuarioDoc) => {
         await agregarTokensUsuario(
           usuarioDoc,
@@ -139,90 +315,12 @@ async function obtenerDestinatarios(
 }
 
 /*
- * Obtiene tokens solamente de UIDs específicos.
- *
- * Además verifica que el usuario continúe perteneciendo
- * a la misma iglesia antes de utilizar sus dispositivos.
- */
-async function obtenerDestinatariosPorUids(
-  iglesiaId,
-  uids,
-) {
-  const uidsUnicos = [
-    ...new Set(
-      (uids ?? [])
-        .map(
-          (uid) =>
-            String(uid ?? '').trim(),
-        )
-        .filter(
-          (uid) => uid.length > 0,
-        ),
-    ),
-  ];
-
-  if (uidsUnicos.length === 0) {
-    return [];
-  }
-
-  const tokens = new Map();
-
-  await Promise.all(
-    uidsUnicos.map(
-      async (uid) => {
-        const usuarioDoc =
-          await db
-            .collection(
-              'usuarios_globales',
-            )
-            .doc(uid)
-            .get();
-
-        if (!usuarioDoc.exists) {
-          console.log(
-            `Usuario ${uid} no existe. `
-            + 'Se omite notificación.',
-          );
-
-          return;
-        }
-
-        const usuario =
-          usuarioDoc.data();
-
-        if (
-          usuario?.iglesiaId
-            ?.toString() !==
-          iglesiaId
-        ) {
-          console.log(
-            `Usuario ${uid} no pertenece `
-            + `a iglesia ${iglesiaId}.`,
-          );
-
-          return;
-        }
-
-        await agregarTokensUsuario(
-          usuarioDoc,
-          tokens,
-        );
-      },
-    ),
-  );
-
-  return [...tokens.values()];
-}
-
-/*
  * ============================================================
- * LIMPIEZA DE TOKENS
+ * LIMPIEZA DE TOKENS INVÁLIDOS
  * ============================================================
  */
 
-function tokenDebeEliminarse(
-  errorCode,
-) {
+function tokenDebeEliminarse(errorCode) {
   return (
     errorCode ===
       'messaging/registration-token-not-registered' ||
@@ -274,8 +372,7 @@ async function enviarNotificacionDestinos({
 }) {
   if (destinos.length === 0) {
     console.log(
-      `No hay tokens FCM para la notificación `
-      + `en iglesia ${iglesiaId}.`,
+      `No hay tokens FCM para iglesia ${iglesiaId}.`,
     );
 
     return {
@@ -318,8 +415,7 @@ async function enviarNotificacionDestinos({
       });
 
   console.log(
-    `Éxito: se enviaron `
-    + `${respuesta.successCount} notificaciones.`,
+    `Éxito: se enviaron ${respuesta.successCount} notificaciones.`,
   );
 
   if (
@@ -443,25 +539,18 @@ function obtenerUidsAsignados(
   turno,
 ) {
   const asignaciones =
-    Array.isArray(turno?.asignaciones)
+    Array.isArray(
+      turno?.asignaciones,
+    )
       ? turno.asignaciones
       : [];
 
-  return [
-    ...new Set(
-      asignaciones
-        .map(
-          (asignacion) =>
-            asignacion?.usuarioUid
-              ?.toString()
-              .trim() ??
-            '',
-        )
-        .filter(
-          (uid) => uid.length > 0,
-        ),
+  return limpiarUids(
+    asignaciones.map(
+      (asignacion) =>
+        asignacion?.usuarioUid,
     ),
-  ];
+  );
 }
 
 function obtenerNuevosUidsAsignados(
@@ -478,8 +567,56 @@ function obtenerNuevosUidsAsignados(
   return obtenerUidsAsignados(
     turnoDespues,
   ).filter(
-    (uid) =>
-      !antes.has(uid),
+    (uid) => !antes.has(uid),
+  );
+}
+
+function obtenerClasesNuevas(
+  moduloAntes,
+  moduloDespues,
+) {
+  const clasesAntes =
+    Array.isArray(
+      moduloAntes?.clases,
+    )
+      ? moduloAntes.clases
+      : [];
+
+  const clasesDespues =
+    Array.isArray(
+      moduloDespues?.clases,
+    )
+      ? moduloDespues.clases
+      : [];
+
+  const idsAntes =
+    new Set(
+      clasesAntes
+        .map(
+          (clase) =>
+            clase?.id
+              ?.toString()
+              .trim() ??
+            '',
+        )
+        .filter(
+          (id) => id.length > 0,
+        ),
+    );
+
+  return clasesDespues.filter(
+    (clase) => {
+      const id =
+        clase?.id
+          ?.toString()
+          .trim() ??
+        '';
+
+      return (
+        id.length > 0 &&
+        !idsAntes.has(id)
+      );
+    },
   );
 }
 
@@ -542,9 +679,9 @@ exports.notificarNuevoMuro =
           'Nueva petición';
       }
 
-      console.log(
-        `Nueva publicación ${publicacionId} `
-        + `en iglesia ${iglesiaId}.`,
+      await incrementarPendientesIglesia(
+        iglesiaId,
+        'comunidades',
       );
 
       await enviarNotificacionIglesia({
@@ -566,7 +703,7 @@ exports.notificarNuevoMuro =
 
 /*
  * ============================================================
- * AGENDA GENERAL
+ * AGENDA
  * ============================================================
  */
 
@@ -617,12 +754,13 @@ exports.notificarNuevoEventoAgenda =
       ]
         .filter(
           (valor) =>
-            valor.trim().isNotEmpty,
+            valor.trim().length > 0,
         )
         .join(' · ');
 
-      console.log(
-        `Nuevo evento de agenda ${eventoId}.`,
+      await incrementarPendientesIglesia(
+        iglesiaId,
+        'agenda',
       );
 
       await enviarNotificacionIglesia({
@@ -630,7 +768,7 @@ exports.notificarNuevoEventoAgenda =
         titulo:
           `Nuevo evento · ${tituloEvento}`,
         cuerpo:
-          detalles.isNotEmpty
+          detalles.length > 0
             ? detalles
             : 'Hay una nueva actividad en la agenda.',
         data: {
@@ -645,21 +783,8 @@ exports.notificarNuevoEventoAgenda =
  * ============================================================
  * SERVIDORES
  * ============================================================
- *
- * 1. Al crear el turno:
- *    se notifica solamente a usuarios ya asignados.
- *
- * 2. Al modificar un turno:
- *    se detectan UIDs que aparecen por primera vez y se
- *    notifica solamente a esos usuarios.
- *
- * Cambiar estado confirmado/rechazado NO genera
- * una notificación nueva porque el UID ya existía antes.
  */
 
-/*
- * NUEVO TURNO
- */
 exports.notificarNuevoTurno =
   onDocumentCreated(
     'iglesias/{iglesiaId}/turnos_servicio/{turnoId}',
@@ -695,22 +820,21 @@ exports.notificarNuevoTurno =
           turno,
         );
 
-      console.log(
-        `Nuevo turno ${turnoId}. `
-        + `Asignados iniciales: `
-        + `${uidsAsignados.length}.`,
-      );
-
       if (
         uidsAsignados.length === 0
       ) {
         console.log(
-          'El turno no tiene usuarios asignados. '
-          + 'No se envía notificación.',
+          'Turno sin usuarios asignados.',
         );
 
         return;
       }
+
+      await incrementarPendientesUsuarios(
+        iglesiaId,
+        uidsAsignados,
+        'servidores',
+      );
 
       await enviarNotificacionUsuarios({
         iglesiaId,
@@ -719,7 +843,7 @@ exports.notificarNuevoTurno =
         titulo:
           'Nuevo turno de servicio',
         cuerpo:
-          fecha.isNotEmpty
+          fecha.length > 0
             ? `${tituloTurno} · ${fecha}`
             : tituloTurno,
         data: {
@@ -731,9 +855,6 @@ exports.notificarNuevoTurno =
     },
   );
 
-/*
- * NUEVA ASIGNACIÓN EN UN TURNO EXISTENTE
- */
 exports.notificarNuevaAsignacionTurno =
   onDocumentUpdated(
     'iglesias/{iglesiaId}/turnos_servicio/{turnoId}',
@@ -766,16 +887,6 @@ exports.notificarNuevaAsignacionTurno =
       if (
         nuevosUids.length === 0
       ) {
-        /*
-         * Esto cubre, por ejemplo:
-         * - confirmar asistencia;
-         * - rechazar turno;
-         * - cambiar título;
-         * - cambiar fecha;
-         * - modificar un área;
-         * - cualquier actualización que no agregue
-         *   un nuevo usuario al turno.
-         */
         return;
       }
 
@@ -795,9 +906,10 @@ exports.notificarNuevaAsignacionTurno =
           ?.toString() ??
         '';
 
-      console.log(
-        `Turno ${turnoId}: `
-        + `${nuevosUids.length} nueva(s) asignación(es).`,
+      await incrementarPendientesUsuarios(
+        iglesiaId,
+        nuevosUids,
+        'servidores',
       );
 
       await enviarNotificacionUsuarios({
@@ -807,13 +919,250 @@ exports.notificarNuevaAsignacionTurno =
         titulo:
           'Nueva asignación de servicio',
         cuerpo:
-          fecha.isNotEmpty
+          fecha.length > 0
             ? `${tituloTurno} · ${fecha}`
             : tituloTurno,
         data: {
           tipo:
             'servidores',
           turnoId,
+        },
+      });
+    },
+  );
+
+/*
+ * ============================================================
+ * CAPACITACIONES
+ * ============================================================
+ */
+
+exports.notificarNuevaCapacitacion =
+  onDocumentCreated(
+    'iglesias/{iglesiaId}/capacitaciones/{capacitacionId}',
+    async (event) => {
+      const snapshot =
+        event.data;
+
+      if (!snapshot) {
+        return;
+      }
+
+      const capacitacion =
+        snapshot.data();
+
+      const iglesiaId =
+        event.params.iglesiaId;
+
+      const capacitacionId =
+        event.params.capacitacionId;
+
+      const tituloCapacitacion =
+        capacitacion.titulo
+          ?.toString()
+          .trim() ||
+        'Nueva capacitación';
+
+      const descripcion =
+        recortarTexto(
+          capacitacion.descripcion,
+        );
+
+      const tipo =
+        capacitacion.tipo
+          ?.toString()
+          .trim() ??
+        '';
+
+      let cuerpo =
+        descripcion;
+
+      if (!cuerpo) {
+        if (tipo === 'video') {
+          cuerpo =
+            'Hay un nuevo video de capacitación disponible.';
+        } else if (
+          tipo === 'texto'
+        ) {
+          cuerpo =
+            'Hay una nueva lectura de capacitación disponible.';
+        } else {
+          cuerpo =
+            'Hay nuevo material de capacitación disponible.';
+        }
+      }
+
+      await incrementarPendientesIglesia(
+        iglesiaId,
+        'capacitaciones',
+      );
+
+      await enviarNotificacionIglesia({
+        iglesiaId,
+        titulo:
+          `Nueva capacitación · ${tituloCapacitacion}`,
+        cuerpo,
+        data: {
+          tipo:
+            'capacitaciones',
+          capacitacionId,
+        },
+      });
+    },
+  );
+
+/*
+ * ============================================================
+ * ESCUELA BÍBLICA
+ * ============================================================
+ */
+
+exports.notificarNuevoModuloEscuela =
+  onDocumentCreated(
+    'iglesias/{iglesiaId}/escuela_modulos/{moduloId}',
+    async (event) => {
+      const snapshot =
+        event.data;
+
+      if (!snapshot) {
+        return;
+      }
+
+      const modulo =
+        snapshot.data();
+
+      const iglesiaId =
+        event.params.iglesiaId;
+
+      const moduloId =
+        event.params.moduloId;
+
+      const tituloModulo =
+        modulo.titulo
+          ?.toString()
+          .trim() ||
+        'Nuevo módulo';
+
+      const descripcion =
+        recortarTexto(
+          modulo.descripcion,
+        );
+
+      await incrementarPendientesIglesia(
+        iglesiaId,
+        'escuela',
+      );
+
+      await enviarNotificacionIglesia({
+        iglesiaId,
+        titulo:
+          `Escuela Bíblica · ${tituloModulo}`,
+        cuerpo:
+          descripcion ||
+          'Hay un nuevo módulo disponible en Escuela Bíblica.',
+        data: {
+          tipo:
+            'escuela',
+          accion:
+            'nuevo_modulo',
+          moduloId,
+        },
+      });
+    },
+  );
+
+exports.notificarNuevaClaseEscuela =
+  onDocumentUpdated(
+    'iglesias/{iglesiaId}/escuela_modulos/{moduloId}',
+    async (event) => {
+      const before =
+        event.data?.before;
+
+      const after =
+        event.data?.after;
+
+      if (
+        !before ||
+        !after
+      ) {
+        return;
+      }
+
+      const moduloAntes =
+        before.data();
+
+      const moduloDespues =
+        after.data();
+
+      const clasesNuevas =
+        obtenerClasesNuevas(
+          moduloAntes,
+          moduloDespues,
+        );
+
+      if (
+        clasesNuevas.length === 0
+      ) {
+        return;
+      }
+
+      const iglesiaId =
+        event.params.iglesiaId;
+
+      const moduloId =
+        event.params.moduloId;
+
+      const tituloModulo =
+        moduloDespues.titulo
+          ?.toString()
+          .trim() ||
+        'Escuela Bíblica';
+
+      const primeraClase =
+        clasesNuevas[0];
+
+      const claseId =
+        primeraClase.id
+          ?.toString()
+          .trim() ??
+        '';
+
+      const tituloClase =
+        primeraClase.titulo
+          ?.toString()
+          .trim() ||
+        'Nueva clase';
+
+      let cuerpo;
+
+      if (
+        clasesNuevas.length === 1
+      ) {
+        cuerpo =
+          `${tituloModulo} · ${tituloClase}`;
+      } else {
+        cuerpo =
+          `${tituloModulo} · `
+          + `${clasesNuevas.length} nuevas clases disponibles`;
+      }
+
+      await incrementarPendientesIglesia(
+        iglesiaId,
+        'escuela',
+      );
+
+      await enviarNotificacionIglesia({
+        iglesiaId,
+        titulo:
+          'Nueva clase · Escuela Bíblica',
+        cuerpo,
+        data: {
+          tipo:
+            'escuela',
+          accion:
+            'nueva_clase',
+          moduloId,
+          claseId,
         },
       });
     },
@@ -855,8 +1204,9 @@ exports.notificarNuevoEventoAdora =
           ?.toString() ??
         '';
 
-      console.log(
-        `Nuevo evento Adora Live ${eventoId}.`,
+      await incrementarPendientesIglesia(
+        iglesiaId,
+        'adoraLive',
       );
 
       await enviarNotificacionIglesia({
@@ -864,7 +1214,7 @@ exports.notificarNuevoEventoAdora =
         titulo:
           `Adora Live · ${tituloEvento}`,
         cuerpo:
-          tipoEvento.isNotEmpty
+          tipoEvento.length > 0
             ? tipoEvento
             : 'Hay un nuevo evento del equipo de alabanza.',
         data: {
@@ -875,3 +1225,747 @@ exports.notificarNuevoEventoAdora =
       });
     },
   );
+  /*
+ * ============================================================
+ * ONBOARDING SEGURO
+ * ============================================================
+ */
+
+const {
+  onCall,
+  HttpsError,
+} = require('firebase-functions/v2/https');
+
+/*
+ * Transfiere la administración principal y ambos roles
+ * de forma atómica, validando al titular dentro de la transacción.
+ */
+exports.transferirAdministracionIglesia = onCall(
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        'unauthenticated',
+        'Debes iniciar sesión.',
+      );
+    }
+
+    const iglesiaId = request.data?.iglesiaId;
+    const nuevoAdminUid = request.data?.nuevoAdminUid;
+
+    if (
+      typeof iglesiaId !== 'string' ||
+      iglesiaId.trim().length === 0 ||
+      iglesiaId.includes('/') ||
+      typeof nuevoAdminUid !== 'string' ||
+      nuevoAdminUid.trim().length === 0 ||
+      nuevoAdminUid.includes('/')
+    ) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Debes indicar una congregación y un miembro válidos.',
+      );
+    }
+
+    if (nuevoAdminUid === uid) {
+      throw new HttpsError(
+        'invalid-argument',
+        'No puedes transferirte la administración a ti mismo.',
+      );
+    }
+
+    const iglesiaRef = db.collection('iglesias').doc(iglesiaId);
+    const adminActualRef = db.collection('usuarios_globales').doc(uid);
+    const nuevoAdminRef = db.collection('usuarios_globales').doc(nuevoAdminUid);
+
+    await db.runTransaction(async (transaction) => {
+      const iglesiaSnapshot = await transaction.get(iglesiaRef);
+      const adminActualSnapshot = await transaction.get(adminActualRef);
+      const nuevoAdminSnapshot = await transaction.get(nuevoAdminRef);
+
+      if (!iglesiaSnapshot.exists) {
+        throw new HttpsError('not-found', 'La congregación no existe.');
+      }
+
+      if (iglesiaSnapshot.data().adminUid !== uid) {
+        throw new HttpsError(
+          'permission-denied',
+          'Solo el administrador principal puede transferir la administración.',
+        );
+      }
+
+      if (!adminActualSnapshot.exists || !nuevoAdminSnapshot.exists) {
+        throw new HttpsError(
+          'not-found',
+          'El perfil del administrador actual o del nuevo administrador no existe.',
+        );
+      }
+
+      if (
+        adminActualSnapshot.data().iglesiaId !== iglesiaId ||
+        nuevoAdminSnapshot.data().iglesiaId !== iglesiaId
+      ) {
+        throw new HttpsError(
+          'permission-denied',
+          'Ambos usuarios deben pertenecer a esta congregación.',
+        );
+      }
+
+      transaction.update(iglesiaRef, { adminUid: nuevoAdminUid });
+      transaction.update(nuevoAdminRef, { rolGlobal: 'admin_iglesia' });
+      transaction.update(adminActualRef, { rolGlobal: 'lider_area' });
+    });
+
+    return { ok: true, nuevoAdminUid };
+  },
+);
+
+/*
+ * Vincula al usuario autenticado con una iglesia
+ * mediante código de acceso.
+ */
+exports.vincularUsuarioConCodigo = onCall(
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        'unauthenticated',
+        'Debes iniciar sesión.',
+      );
+    }
+
+    const codigo =
+      String(
+        request.data?.codigo ?? '',
+      )
+        .trim()
+        .toUpperCase();
+
+    const nombre =
+      String(
+        request.data?.nombre ?? '',
+      ).trim();
+
+    const email =
+      String(
+        request.data?.email ?? '',
+      ).trim();
+
+    const fotoUrl =
+      String(
+        request.data?.fotoUrl ?? '',
+      ).trim();
+
+    const descripcion =
+      String(
+        request.data?.descripcion ?? '',
+      ).trim();
+
+    if (!codigo) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Debes ingresar un código de congregación.',
+      );
+    }
+
+    const usuarioRef =
+      db
+        .collection('usuarios_globales')
+        .doc(uid);
+
+    const usuarioSnapshot =
+      await usuarioRef.get();
+
+    if (
+      usuarioSnapshot.exists &&
+      usuarioSnapshot.data()?.iglesiaId
+    ) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Tu cuenta ya pertenece a una congregación.',
+      );
+    }
+
+    const iglesiasSnapshot =
+      await db
+        .collection('iglesias')
+        .where(
+          'codigoAcceso',
+          '==',
+          codigo,
+        )
+        .limit(1)
+        .get();
+
+    if (iglesiasSnapshot.empty) {
+      throw new HttpsError(
+        'not-found',
+        'El código ingresado no existe.',
+      );
+    }
+
+    const iglesiaDoc =
+      iglesiasSnapshot.docs[0];
+
+    const datosUsuario = {
+      email,
+      nombre:
+        nombre || 'Servidor',
+      iglesiaId:
+        iglesiaDoc.id,
+      rolGlobal:
+        'servidor',
+      fotoUrl:
+        fotoUrl || null,
+      descripcion:
+        descripcion || null,
+    };
+
+    await usuarioRef.set(
+      datosUsuario,
+      {
+        merge: true,
+      },
+    );
+
+    return {
+      ok: true,
+      iglesiaId:
+        iglesiaDoc.id,
+    };
+  },
+);
+
+/*
+ * Crea una nueva congregación y deja al
+ * usuario autenticado como administrador.
+ */
+exports.registrarNuevaIglesiaSegura = onCall(
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        'unauthenticated',
+        'Debes iniciar sesión.',
+      );
+    }
+
+    const nombreAdmin =
+      String(
+        request.data?.nombreAdmin ?? '',
+      ).trim();
+
+    const email =
+      String(
+        request.data?.email ?? '',
+      ).trim();
+
+    const nombreIglesia =
+      String(
+        request.data?.nombreIglesia ?? '',
+      ).trim();
+
+    const codigo =
+      String(
+        request.data?.codigo ?? '',
+      )
+        .trim()
+        .toUpperCase();
+
+    const descripcionIglesia =
+      String(
+        request.data?.descripcionIglesia ?? '',
+      ).trim();
+
+    const fotoUrl =
+      String(
+        request.data?.fotoUrl ?? '',
+      ).trim();
+
+    const descripcionAdmin =
+      String(
+        request.data?.descripcionAdmin ?? '',
+      ).trim();
+
+    if (
+      !nombreIglesia ||
+      !codigo
+    ) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Debes completar nombre y código de la congregación.',
+      );
+    }
+
+    const usuarioRef =
+      db
+        .collection('usuarios_globales')
+        .doc(uid);
+
+    const usuarioSnapshot =
+      await usuarioRef.get();
+
+    if (
+      usuarioSnapshot.exists &&
+      usuarioSnapshot.data()?.iglesiaId
+    ) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Tu cuenta ya pertenece a una congregación.',
+      );
+    }
+
+    const codigoExistente =
+      await db
+        .collection('iglesias')
+        .where(
+          'codigoAcceso',
+          '==',
+          codigo,
+        )
+        .limit(1)
+        .get();
+
+    if (!codigoExistente.empty) {
+      throw new HttpsError(
+        'already-exists',
+        'Ese código ya está en uso.',
+      );
+    }
+
+    const iglesiaRef =
+      db
+        .collection('iglesias')
+        .doc();
+
+    const batch =
+      db.batch();
+
+    batch.set(
+      iglesiaRef,
+      {
+        nombre:
+          nombreIglesia,
+        descripcion:
+          descripcionIglesia,
+        codigoAcceso:
+          codigo,
+        adminUid:
+          uid,
+        logoUrl:
+          '',
+        modulosActivos: {
+          servidores:
+            true,
+          adoraLive:
+            true,
+          agenda:
+            true,
+          escuela:
+            false,
+          comunidades:
+            false,
+          capacitaciones:
+            true,
+        },
+        fechaCreacion:
+          FieldValue.serverTimestamp(),
+      },
+    );
+
+    batch.set(
+      usuarioRef,
+      {
+        email,
+        nombre:
+          nombreAdmin ||
+          'Pastor / Administrador',
+        iglesiaId:
+          iglesiaRef.id,
+        rolGlobal:
+          'admin_iglesia',
+        fotoUrl:
+          fotoUrl || null,
+        descripcion:
+          descripcionAdmin || null,
+      },
+      {
+        merge: true,
+      },
+    );
+
+    await batch.commit();
+
+    return {
+      ok: true,
+      iglesiaId:
+        iglesiaRef.id,
+    };
+  },
+);
+/*
+ * ============================================================
+ * ACCIONES SEGURAS DE MIEMBROS
+ * Servidores + Adora Live
+ * ============================================================
+ */
+
+/*
+ * Un miembro confirma o rechaza únicamente
+ * la asignación que le corresponde.
+ *
+ * Admin/líder también puede utilizar esta función
+ * sobre una asignación determinada.
+ */
+exports.actualizarEstadoTurnoSeguro = onCall(
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        'unauthenticated',
+        'Debes iniciar sesión.',
+      );
+    }
+
+    const iglesiaId = String(
+      request.data?.iglesiaId ?? '',
+    ).trim();
+
+    const turnoId = String(
+      request.data?.turnoId ?? '',
+    ).trim();
+
+    const puesto = String(
+      request.data?.puesto ?? '',
+    ).trim();
+
+    const usuarioUidObjetivo = String(
+      request.data?.usuarioUid ?? '',
+    ).trim();
+
+    const nuevoEstado = String(
+      request.data?.estado ?? '',
+    ).trim();
+
+    if (
+      !iglesiaId ||
+      !turnoId ||
+      !puesto ||
+      !usuarioUidObjetivo
+    ) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Faltan datos de la asignación.',
+      );
+    }
+
+    if (
+      nuevoEstado !== 'confirmado' &&
+      nuevoEstado !== 'rechazado'
+    ) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Estado no permitido.',
+      );
+    }
+
+    const usuarioRef = db
+      .collection('usuarios_globales')
+      .doc(uid);
+
+    const turnoRef = db
+      .collection('iglesias')
+      .doc(iglesiaId)
+      .collection('turnos_servicio')
+      .doc(turnoId);
+
+    await db.runTransaction(
+      async (transaction) => {
+        const usuarioSnapshot =
+          await transaction.get(usuarioRef);
+
+        if (!usuarioSnapshot.exists) {
+          throw new HttpsError(
+            'permission-denied',
+            'El perfil del usuario no existe.',
+          );
+        }
+
+        const usuarioData =
+          usuarioSnapshot.data() ?? {};
+
+        if (
+          usuarioData.iglesiaId !==
+          iglesiaId
+        ) {
+          throw new HttpsError(
+            'permission-denied',
+            'No perteneces a esta congregación.',
+          );
+        }
+
+        const rol =
+          String(
+            usuarioData.rolGlobal ?? '',
+          );
+
+        const puedeGestionar =
+          rol === 'admin_iglesia' ||
+          rol === 'lider_area';
+
+        if (
+          !puedeGestionar &&
+          usuarioUidObjetivo !== uid
+        ) {
+          throw new HttpsError(
+            'permission-denied',
+            'Solo puedes modificar tu propia asignación.',
+          );
+        }
+
+        const turnoSnapshot =
+          await transaction.get(turnoRef);
+
+        if (!turnoSnapshot.exists) {
+          throw new HttpsError(
+            'not-found',
+            'El turno ya no existe.',
+          );
+        }
+
+        const turnoData =
+          turnoSnapshot.data() ?? {};
+
+        const asignacionesRaw =
+          Array.isArray(
+            turnoData.asignaciones,
+          )
+            ? turnoData.asignaciones
+            : [];
+
+        let encontrada = false;
+
+        const nuevasAsignaciones =
+          asignacionesRaw.map(
+            (asignacion) => {
+              if (
+                !asignacion ||
+                typeof asignacion !==
+                  'object'
+              ) {
+                return asignacion;
+              }
+
+              const puestoActual =
+                String(
+                  asignacion.puesto ?? '',
+                );
+
+              const uidActual =
+                String(
+                  asignacion.usuarioUid ??
+                    '',
+                );
+
+              if (
+                puestoActual === puesto &&
+                uidActual ===
+                  usuarioUidObjetivo
+              ) {
+                encontrada = true;
+
+                /*
+                 * La interfaz actual solamente
+                 * ofrece confirmar/rechazar
+                 * cuando el estado es pendiente.
+                 */
+                if (
+                  asignacion.estado !==
+                  'pendiente'
+                ) {
+                  throw new HttpsError(
+                    'failed-precondition',
+                    'Esta asignación ya fue respondida.',
+                  );
+                }
+
+                return {
+                  ...asignacion,
+                  estado: nuevoEstado,
+                };
+              }
+
+              return asignacion;
+            },
+          );
+
+        if (!encontrada) {
+          throw new HttpsError(
+            'not-found',
+            'No se encontró la asignación.',
+          );
+        }
+
+        transaction.update(
+          turnoRef,
+          {
+            asignaciones:
+              nuevasAsignaciones,
+          },
+        );
+      },
+    );
+
+    return {
+      ok: true,
+      estado: nuevoEstado,
+    };
+  },
+);
+
+/*
+ * El usuario autenticado modifica únicamente
+ * SU PROPIA asistencia en un evento de Adora.
+ */
+exports.actualizarAsistenciaAdoraSegura = onCall(
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        'unauthenticated',
+        'Debes iniciar sesión.',
+      );
+    }
+
+    const iglesiaId = String(
+      request.data?.iglesiaId ?? '',
+    ).trim();
+
+    const eventoId = String(
+      request.data?.eventoId ?? '',
+    ).trim();
+
+    const asistir =
+      request.data?.asistir;
+
+    if (
+      !iglesiaId ||
+      !eventoId ||
+      typeof asistir !== 'boolean'
+    ) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Datos de asistencia no válidos.',
+      );
+    }
+
+    const usuarioRef = db
+      .collection('usuarios_globales')
+      .doc(uid);
+
+    const eventoRef = db
+      .collection('iglesias')
+      .doc(iglesiaId)
+      .collection('adora_eventos')
+      .doc(eventoId);
+
+    await db.runTransaction(
+      async (transaction) => {
+        const usuarioSnapshot =
+          await transaction.get(
+            usuarioRef,
+          );
+
+        if (!usuarioSnapshot.exists) {
+          throw new HttpsError(
+            'permission-denied',
+            'El perfil del usuario no existe.',
+          );
+        }
+
+        const usuarioData =
+          usuarioSnapshot.data() ?? {};
+
+        if (
+          usuarioData.iglesiaId !==
+          iglesiaId
+        ) {
+          throw new HttpsError(
+            'permission-denied',
+            'No perteneces a esta congregación.',
+          );
+        }
+
+        const eventoSnapshot =
+          await transaction.get(
+            eventoRef,
+          );
+
+        if (!eventoSnapshot.exists) {
+          throw new HttpsError(
+            'not-found',
+            'El evento ya no existe.',
+          );
+        }
+
+        const eventoData =
+          eventoSnapshot.data() ?? {};
+
+        const nuevaLista =
+          Array.isArray(
+            eventoData.asistentesUids,
+          )
+            ? eventoData.asistentesUids.map(
+                (valor) =>
+                  String(valor),
+              )
+            : [];
+
+        const nombreUsuario =
+          String(
+            usuarioData.nombre ?? '',
+          );
+
+        /*
+         * También quitamos el nombre porque
+         * versiones antiguas de FeSync podían
+         * guardar el nombre en vez del UID.
+         */
+        const limpia =
+          nuevaLista.filter(
+            (valor) =>
+              valor !== uid &&
+              (
+                nombreUsuario.length ===
+                  0 ||
+                valor !==
+                  nombreUsuario
+              ),
+          );
+
+        if (asistir) {
+          limpia.push(uid);
+        }
+
+        transaction.update(
+          eventoRef,
+          {
+            asistentesUids:
+              limpia,
+          },
+        );
+      },
+    );
+
+    return {
+      ok: true,
+      asistir,
+    };
+  },
+);
+       
