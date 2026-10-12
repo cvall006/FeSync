@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/app_models.dart';
 import 'agenda_models.dart';
+import 'compartir_actividad.dart';
 
 class AgendaScreen extends StatefulWidget {
   final UsuarioModel usuario;
@@ -678,6 +679,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                 spacing: 16,
                                 runSpacing: 8,
                                 children: [
+                                  CompartirActividadButton(evento: evento),
                                   _DatoEvento(
                                     icono: Icons.access_time,
                                     texto: evento.hora,

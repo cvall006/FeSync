@@ -11,6 +11,7 @@ import 'core/models/app_models.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/notification_service.dart';
+import 'core/services/navegacion_sesion.dart';
 import 'firebase_options.dart';
 import 'modules/adora_live/adora_live_screen.dart';
 import 'modules/agenda/agenda_screen.dart';
@@ -141,6 +142,8 @@ class RootGate extends StatefulWidget {
 
 class _RootGateState extends State<RootGate> {
   final AuthService _authService = AuthService();
+  StreamSubscription<bool>? _authSubscription;
+  int _revisionSesion = 0;
 
   UsuarioModel? _perfil;
 
@@ -159,21 +162,40 @@ class _RootGateState extends State<RootGate> {
 
     NotificationService.instance.setTapHandler(_manejarTapNotificacion);
 
+    _authSubscription = observarNavegacionSesion(
+      cambios: _authService.authStateChanges.map((user) => user != null),
+      inicialmenteAutenticado: _authService.currentUser != null,
+      navigatorKey: navigatorKey,
+      onSesionCerrada: () {
+        if (!mounted) return;
+        _revisionSesion++;
+        unawaited(_cancelarEscuchaPerfil());
+        setState(() {
+          _perfil = null;
+          _cargando = false;
+        });
+      },
+      onSesionAbierta: () {
+        if (mounted) unawaited(_revisarSesion());
+      },
+    );
+
     _revisarSesion();
   }
 
   @override
   void dispose() {
+    _authSubscription?.cancel();
     _perfilSubscription?.cancel();
 
     super.dispose();
   }
 
   Future<void> _cancelarEscuchaPerfil() async {
-    await _perfilSubscription?.cancel();
-
+    final subscription = _perfilSubscription;
     _perfilSubscription = null;
     _uidEscuchado = null;
+    await subscription?.cancel();
   }
 
   void _escucharPerfilUsuario(String uid) {
@@ -191,7 +213,7 @@ class _RootGateState extends State<RootGate> {
         .snapshots()
         .listen(
           (snapshot) {
-            if (!mounted) {
+            if (!mounted || _authService.currentUser?.uid != uid) {
               return;
             }
 
@@ -317,6 +339,7 @@ class _RootGateState extends State<RootGate> {
     }
 
     await _limpiarContadorNotificacion(perfil, tipo);
+    if (!mounted || _authService.currentUser?.uid != perfil.uid) return true;
 
     switch (tipo) {
       case 'nuevo_miembro':
@@ -414,6 +437,7 @@ class _RootGateState extends State<RootGate> {
   }
 
   Future<void> _revisarSesion() async {
+    final revision = ++_revisionSesion;
     if (mounted) {
       setState(() {
         _cargando = true;
@@ -425,7 +449,7 @@ class _RootGateState extends State<RootGate> {
     if (user == null) {
       await _cancelarEscuchaPerfil();
 
-      if (mounted) {
+      if (mounted && revision == _revisionSesion) {
         setState(() {
           _perfil = null;
           _cargando = false;
@@ -436,6 +460,12 @@ class _RootGateState extends State<RootGate> {
     }
 
     final perfil = await _authService.obtenerPerfilUsuario(user.uid);
+
+    bool vigente() =>
+        mounted &&
+        revision == _revisionSesion &&
+        _authService.currentUser?.uid == user.uid;
+    if (!vigente()) return;
 
     _escucharPerfilUsuario(user.uid);
 
@@ -450,7 +480,7 @@ class _RootGateState extends State<RootGate> {
 
         final modoOscuro = data?['modoOscuro'];
 
-        if (modoOscuro is bool && mounted) {
+        if (modoOscuro is bool && mounted && vigente()) {
           context.read<ThemeProvider>().establecerModoOscuro(modoOscuro);
         }
       } catch (error) {
@@ -462,6 +492,7 @@ class _RootGateState extends State<RootGate> {
       }
     }
 
+    if (!vigente()) return;
     if (mounted) {
       setState(() {
         _perfil = perfil;
@@ -474,8 +505,10 @@ class _RootGateState extends State<RootGate> {
      */
     if (perfil != null && perfil.iglesiaId.isNotEmpty) {
       await NotificationService.instance.configurarUsuario(user.uid);
+      if (!vigente()) return;
 
       await NotificationService.instance.reanudarTapPendiente();
+      if (!vigente()) return;
     }
 
     if (mounted) {
@@ -495,8 +528,6 @@ class _RootGateState extends State<RootGate> {
     await _cancelarEscuchaPerfil();
 
     await _authService.cerrarSesion();
-
-    await _revisarSesion();
   }
 
   Future<void> _perfilActualizado() async {

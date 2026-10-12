@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/models/app_models.dart';
 import 'adora_models.dart';
 import 'adora_editor_cancion.dart';
+import 'adora_filtros_repertorio.dart';
 import 'adora_visor_cancion_screen.dart';
 
 class AdoraRepertorioScreen extends StatefulWidget {
@@ -16,6 +17,32 @@ class AdoraRepertorioScreen extends StatefulWidget {
 }
 
 class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
+  final _busquedaCtrl = TextEditingController();
+  String _tonoFiltro = '';
+  late Stream<QuerySnapshot> _cancionesStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _cancionesStream = _cancionesRef.orderBy('titulo').snapshots();
+  }
+
+  @override
+  void didUpdateWidget(covariant AdoraRepertorioScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.usuario.iglesiaId != widget.usuario.iglesiaId) {
+      _busquedaCtrl.clear();
+      _tonoFiltro = '';
+      _cancionesStream = _cancionesRef.orderBy('titulo').snapshots();
+    }
+  }
+
+  @override
+  void dispose() {
+    _busquedaCtrl.dispose();
+    super.dispose();
+  }
+
   CollectionReference get _cancionesRef => FirebaseFirestore.instance
       .collection('iglesias')
       .doc(widget.usuario.iglesiaId)
@@ -145,12 +172,14 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Repertorio General',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: onSurface,
+                Expanded(
+                  child: Text(
+                    'Repertorio General',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: onSurface,
+                    ),
                   ),
                 ),
                 if (_puedeGestionar)
@@ -168,9 +197,28 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
               ],
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: TextField(
+              controller: _busquedaCtrl,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'Buscar canción',
+                hintText: 'Nombre o parte del título',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _busquedaCtrl.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Limpiar búsqueda',
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => setState(() => _busquedaCtrl.clear()),
+                      ),
+              ),
+            ),
+          ),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: _cancionesRef.orderBy('titulo').snapshots(),
+              stream: _cancionesStream,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
@@ -201,21 +249,21 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                         .toList() ??
                     [];
 
-                if (canciones.isEmpty) {
-                  return Center(
-                    child: Text(
-                      'No hay canciones '
-                      'en el repertorio.',
-                      style: TextStyle(color: secondary),
-                    ),
-                  );
-                }
+                final filtradas = filtrarRepertorioAdora(
+                  canciones,
+                  nombre: _busquedaCtrl.text,
+                  tono: _tonoFiltro,
+                );
+                final tonos = tonosDelRepertorio(
+                  canciones,
+                  seleccionado: _tonoFiltro,
+                );
 
-                return ListView.builder(
+                final lista = ListView.builder(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 90),
-                  itemCount: canciones.length,
+                  itemCount: filtradas.length,
                   itemBuilder: (context, index) {
-                    final cancion = canciones[index];
+                    final cancion = filtradas[index];
 
                     final descripcion = _descripcionCancion(cancion);
 
@@ -285,6 +333,46 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                       ),
                     );
                   },
+                );
+                return Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      child: DropdownButtonFormField<String>(
+                        key: ValueKey(_tonoFiltro),
+                        initialValue: _tonoFiltro,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Tono musical',
+                        ),
+                        items: [
+                          const DropdownMenuItem(
+                            value: '',
+                            child: Text('Todos los tonos'),
+                          ),
+                          ...tonos.map(
+                            (tono) => DropdownMenuItem(
+                              value: tono,
+                              child: Text(tono),
+                            ),
+                          ),
+                        ],
+                        onChanged: (tono) =>
+                            setState(() => _tonoFiltro = tono ?? ''),
+                      ),
+                    ),
+                    Expanded(
+                      child: filtradas.isEmpty
+                          ? Center(
+                              child: Text(
+                                'No se encontraron canciones\nPrueba con otro nombre o tono.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: secondary),
+                              ),
+                            )
+                          : lista,
+                    ),
+                  ],
                 );
               },
             ),
