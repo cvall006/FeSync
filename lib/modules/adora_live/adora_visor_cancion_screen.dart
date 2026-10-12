@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'adora_parser_acordes.dart';
+
 import 'adora_models.dart';
 
 class BloqueAcorde {
@@ -11,61 +13,11 @@ class BloqueAcorde {
   const BloqueAcorde({required this.acordeOriginal, required this.letra});
 }
 
-bool _esEtiquetaSeccion(String texto) {
-  final limpio = texto.trim();
-
-  if (RegExp(
-    r'^(intro|coro|puente|estrofa|verso|final|instrumental|pre[\s-]?coro)\s*:?\s*$',
-    caseSensitive: false,
-  ).hasMatch(limpio)) {
-    return true;
-  }
-
-  return RegExp(r'^=+\s*.+?\s*=+$').hasMatch(limpio);
-}
-
-bool _esLineaDeAcordes(String texto) {
-  final temp = texto.trim();
-
-  if (temp.isEmpty) {
-    return false;
-  }
-
-  if (_esEtiquetaSeccion(temp)) {
-    return false;
-  }
-
-  final palabras = temp.split(RegExp(r'\s+'));
-
-  final acordeRegex = RegExp(
-    r'^[A-G][#b]?(m|maj|sus|dim|aug)?\d*(/[A-G][#b]?)?$',
-    caseSensitive: false,
-  );
-
-  for (final palabra in palabras) {
-    if (palabra == '|' || palabra == '-' || palabra == '[-]') {
-      continue;
-    }
-
-    final limpia = palabra.replaceAll(RegExp(r'[\[\]\(\)\*]'), '');
-
-    if (limpia.isEmpty) {
-      continue;
-    }
-
-    if (!acordeRegex.hasMatch(limpia)) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
 List<BloqueAcorde> procesarLinea(String linea) {
   if (!linea.contains('[')) {
     final lineaPreservada = linea.replaceAll(' ', '\u00A0');
 
-    if (_esLineaDeAcordes(linea)) {
+    if (esLineaDeAcordes(linea)) {
       return [BloqueAcorde(acordeOriginal: lineaPreservada, letra: '')];
     }
 
@@ -428,7 +380,7 @@ class _AdoraVisorCancionScreenState extends State<AdoraVisorCancionScreen> {
 
     final secondary = theme.colorScheme.onSurfaceVariant;
 
-    final lineas = widget.cancion.letra.split('\n');
+    final lineas = normalizarTextoImportado(widget.cancion.letra).split('\n');
 
     return Scaffold(
       appBar: AppBar(
@@ -563,9 +515,9 @@ class _AdoraVisorCancionScreenState extends State<AdoraVisorCancionScreen> {
           ),
 
           Container(
-            color: surface,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
+              color: surface,
               border: Border(
                 top: BorderSide(
                   color: oscuro

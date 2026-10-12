@@ -1,8 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/models/app_models.dart';
 import 'adora_models.dart';
+import 'adora_parser_acordes.dart';
 import 'adora_visor_cancion_screen.dart';
 
 class AdoraRepertorioScreen extends StatefulWidget {
@@ -117,18 +119,56 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  children: [
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.content_paste),
+                      label: const Text('Pegar canción'),
+                      onPressed: () async {
+                        final datos = await Clipboard.getData(
+                          Clipboard.kTextPlain,
+                        );
+                        if (!ctx.mounted) return;
+                        final texto = datos?.text ?? '';
+                        if (texto.trim().isEmpty) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            const SnackBar(
+                              content: Text('El portapapeles está vacío.'),
+                            ),
+                          );
+                          return;
+                        }
+                        letraCtrl.text = normalizarTextoImportado(texto);
+                      },
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.auto_fix_high),
+                      label: const Text('Analizar'),
+                      onPressed: () {
+                        letraCtrl.text = normalizarTextoImportado(
+                          letraCtrl.text,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 TextField(
                   controller: letraCtrl,
                   minLines: 10,
                   maxLines: 20,
                   style: const TextStyle(fontFamily: 'Courier'),
                   decoration: const InputDecoration(
-                    labelText: 'Letra con acordes [Do]',
+                    labelText: 'Letra y acordes',
+                    helperText: 'Puedes pegar la canción directamente desde una página web.',
+                    helperMaxLines: 2,
                     alignLabelWithHint: true,
                     hintText:
-                        'Intro:\n'
-                        '[Bm] [-] [G] [-] [D] [-] [A]\n\n'
-                        'Qu[Bm]iero levantar a ti[G] mis manos...',
+                        'VERSO 1\n'
+                        '     G                    Am          G\n'
+                        'Te alabo en el valle, Te alabo en el monte\n\n'
+                        'Intro: ////Bm - G - D - A////',
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -154,7 +194,8 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
                         'tono': tonoCtrl.text.trim(),
                         'voz_principal': vozCtrl.text.trim(),
                         'youtube': youtubeCtrl.text.trim(),
-                        'letra': letraCtrl.text.trim(),
+                        'letra': normalizarTextoImportado(letraCtrl.text)
+                            .trim(),
                         'creadorUid': cancion?.creadorUid.isNotEmpty == true
                             ? cancion!.creadorUid
                             : widget.usuario.uid,
