@@ -1,10 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../core/models/app_models.dart';
 import 'adora_models.dart';
-import 'adora_parser_acordes.dart';
+import 'adora_editor_cancion.dart';
 import 'adora_visor_cancion_screen.dart';
 
 class AdoraRepertorioScreen extends StatefulWidget {
@@ -27,214 +26,21 @@ class _AdoraRepertorioScreenState extends State<AdoraRepertorioScreen> {
       widget.usuario.rolGlobal == 'lider_area';
 
   Future<void> _abrirEditor({AdoraCancionModel? cancion}) async {
-    final tituloCtrl = TextEditingController(text: cancion?.titulo ?? '');
-
-    final autorCtrl = TextEditingController(text: cancion?.autor ?? '');
-
-    final tonoCtrl = TextEditingController(text: cancion?.tono ?? '');
-
-    final vozCtrl = TextEditingController(text: cancion?.vozPrincipal ?? '');
-
-    final youtubeCtrl = TextEditingController(text: cancion?.youtube ?? '');
-
-    final letraCtrl = TextEditingController(text: cancion?.letra ?? '');
-
-    await showModalBottomSheet<void>(
+    await mostrarEditorAdoraCancion(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) {
-        final theme = Theme.of(ctx);
-
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            top: 24,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  cancion == null ? 'Nueva Canción' : 'Editar Canción',
-                  style: TextStyle(
-                    color: theme.colorScheme.onSurface,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                TextField(
-                  controller: tituloCtrl,
-                  decoration: const InputDecoration(labelText: 'Título'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: autorCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Autor original',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: tonoCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Tono (ej: Do)',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: TextField(
-                        controller: vozCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Voz Principal (ej: Juan)',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: youtubeCtrl,
-                  minLines: 2,
-                  maxLines: 5,
-                  decoration: const InputDecoration(
-                    labelText:
-                        'Links de Tutoriales '
-                        '(uno por línea)',
-                    alignLabelWithHint: true,
-                    hintText:
-                        'Guitarra: https://youtube.com/...\n'
-                        'Piano: https://youtube.com/...',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 12,
-                  children: [
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.content_paste),
-                      label: const Text('Pegar canción'),
-                      onPressed: () async {
-                        final datos = await Clipboard.getData(
-                          Clipboard.kTextPlain,
-                        );
-                        if (!ctx.mounted) return;
-                        final texto = datos?.text ?? '';
-                        if (texto.trim().isEmpty) {
-                          ScaffoldMessenger.of(ctx).showSnackBar(
-                            const SnackBar(
-                              content: Text('El portapapeles está vacío.'),
-                            ),
-                          );
-                          return;
-                        }
-                        letraCtrl.text = normalizarTextoImportado(texto);
-                      },
-                    ),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.auto_fix_high),
-                      label: const Text('Analizar'),
-                      onPressed: () {
-                        letraCtrl.text = normalizarTextoImportado(
-                          letraCtrl.text,
-                        );
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: letraCtrl,
-                  minLines: 10,
-                  maxLines: 20,
-                  style: const TextStyle(fontFamily: 'Courier'),
-                  decoration: const InputDecoration(
-                    labelText: 'Letra y acordes',
-                    helperText: 'Puedes pegar la canción directamente desde una página web.',
-                    helperMaxLines: 2,
-                    alignLabelWithHint: true,
-                    hintText:
-                        'VERSO 1\n'
-                        '     G                    Am          G\n'
-                        'Te alabo en el valle, Te alabo en el monte\n\n'
-                        'Intro: ////Bm - G - D - A////',
-                  ),
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF3B82F6),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                    ),
-                    onPressed: () async {
-                      if (tituloCtrl.text.trim().isEmpty) {
-                        return;
-                      }
-
-                      final datos = {
-                        'titulo': tituloCtrl.text.trim(),
-                        'autor': autorCtrl.text.trim(),
-                        'tono': tonoCtrl.text.trim(),
-                        'voz_principal': vozCtrl.text.trim(),
-                        'youtube': youtubeCtrl.text.trim(),
-                        'letra': normalizarTextoImportado(letraCtrl.text)
-                            .trim(),
-                        'creadorUid': cancion?.creadorUid.isNotEmpty == true
-                            ? cancion!.creadorUid
-                            : widget.usuario.uid,
-                      };
-
-                      if (cancion == null) {
-                        await _cancionesRef.add({
-                          ...datos,
-                          'fechaCreacion': FieldValue.serverTimestamp(),
-                        });
-                      } else {
-                        await _cancionesRef.doc(cancion.id).update(datos);
-                      }
-
-                      if (!ctx.mounted) {
-                        return;
-                      }
-
-                      Navigator.pop(ctx);
-                    },
-                    child: const Text(
-                      'Guardar Canción',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
+      creadorUid: widget.usuario.uid,
+      cancion: cancion,
+      guardar: (datos) async {
+        if (cancion == null) {
+          await _cancionesRef.add({
+            ...datos,
+            'fechaCreacion': FieldValue.serverTimestamp(),
+          });
+        } else {
+          await _cancionesRef.doc(cancion.id).update(datos);
+        }
       },
     );
-
-    tituloCtrl.dispose();
-    autorCtrl.dispose();
-    tonoCtrl.dispose();
-    vozCtrl.dispose();
-    youtubeCtrl.dispose();
-    letraCtrl.dispose();
   }
 
   Future<void> _eliminarCancion(AdoraCancionModel cancion) async {

@@ -104,11 +104,13 @@ String transponerTextoAcorde(String textoAcorde, int pasos) {
 class AdoraVisorCancionScreen extends StatefulWidget {
   final AdoraCancionModel cancion;
   final bool puedeEditar;
+  final bool esVistaPrevia;
 
   const AdoraVisorCancionScreen({
     super.key,
     required this.cancion,
     required this.puedeEditar,
+    this.esVistaPrevia = false,
   });
 
   @override
@@ -384,7 +386,20 @@ class _AdoraVisorCancionScreenState extends State<AdoraVisorCancionScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.cancion.titulo),
+        title: widget.esVistaPrevia
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Vista previa'),
+                  Text(
+                    widget.cancion.titulo,
+                    style: theme.textTheme.bodySmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              )
+            : Text(widget.cancion.titulo),
         actions: [
           if (widget.cancion.tutoriales.isNotEmpty)
             IconButton(
@@ -400,7 +415,7 @@ class _AdoraVisorCancionScreenState extends State<AdoraVisorCancionScreen> {
               color: _mostrarAcordes ? secondary : const Color(0xFF10B981),
             ),
           ),
-          if (widget.puedeEditar)
+          if (widget.puedeEditar && !widget.esVistaPrevia)
             IconButton(
               tooltip: 'Editar canción',
               icon: const Icon(Icons.edit, color: Color(0xFF3B82F6)),
