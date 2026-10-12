@@ -131,7 +131,8 @@ class DashboardScreen extends StatelessWidget {
           },
         ),
         actions: [
-          if (usuario.rolGlobal == 'admin_iglesia')
+          if (usuario.rolGlobal == 'admin_iglesia' ||
+              usuario.rolGlobal == 'lider_area')
             IconButton(
               tooltip: 'Gestión de miembros',
               icon: const Icon(Icons.group),

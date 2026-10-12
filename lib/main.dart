@@ -20,6 +20,7 @@ import 'modules/capacitaciones/capacitaciones_screen.dart';
 import 'modules/comunidad/comunidad_screen.dart';
 import 'modules/dashboard/dashboard_screen.dart';
 import 'modules/escuela/escuela_screen.dart';
+import 'modules/miembros/gestion_miembros_screen.dart';
 import 'modules/servidores/servidores_screen.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -307,7 +308,7 @@ class _RootGateState extends State<RootGate> {
       return false;
     }
 
-    final tipo = data['tipo']?.toString().trim();
+    final tipo = (data['tipo'] ?? data['type'])?.toString().trim();
 
     final navigator = navigatorKey.currentState;
 
@@ -318,6 +319,18 @@ class _RootGateState extends State<RootGate> {
     await _limpiarContadorNotificacion(perfil, tipo);
 
     switch (tipo) {
+      case 'nuevo_miembro':
+        if (data['iglesiaId'] != perfil.iglesiaId ||
+            perfil.rolGlobal != 'admin_iglesia') {
+          return true;
+        }
+        await navigator.push(
+          MaterialPageRoute(
+            builder: (_) => GestionMiembrosScreen(usuario: perfil),
+          ),
+        );
+        return true;
+
       case 'muro_comunidad':
         await navigator.push(
           MaterialPageRoute(builder: (_) => ComunidadScreen(usuario: perfil)),
@@ -383,7 +396,7 @@ class _RootGateState extends State<RootGate> {
       return;
     }
 
-    final tipo = uri.queryParameters['tipo'];
+    final tipo = uri.queryParameters['tipo'] ?? uri.queryParameters['type'];
 
     if (tipo == null || tipo.trim().isEmpty) {
       _tapWebProcesado = true;

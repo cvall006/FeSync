@@ -1430,6 +1430,29 @@ exports.vincularUsuarioConCodigo = onCall(
       },
     );
 
+    // Notify only after the link has been persisted. A push failure must not
+    // turn a successful link into an error that invites a client retry.
+    const adminUid = String(iglesiaDoc.data()?.adminUid ?? '').trim();
+    if (adminUid && adminUid !== uid) {
+      try {
+        await enviarNotificacionUsuarios({
+          iglesiaId: iglesiaDoc.id,
+          uids: [adminUid],
+          titulo: 'Nuevo miembro en FeSync',
+          cuerpo: nombre
+            ? `${nombre} se ha registrado en tu iglesia.`
+            : 'Un nuevo miembro se ha registrado en tu iglesia.',
+          data: {
+            type: 'nuevo_miembro',
+            tipo: 'nuevo_miembro',
+            usuarioUid: uid,
+          },
+        });
+      } catch (error) {
+        console.error('Vinculación exitosa; no se pudo enviar el aviso de nuevo miembro.', error?.code ?? error?.message);
+      }
+    }
+
     return {
       ok: true,
       iglesiaId:

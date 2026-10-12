@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/models/app_models.dart';
 import '../../core/widgets/safe_avatar.dart';
+import 'exportar_miembros.dart';
 
 class GestionMiembrosScreen extends StatefulWidget {
   final UsuarioModel usuario;
@@ -63,7 +64,7 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
             '¿Confirmas la transferencia a ${miembro['nombre'] ?? 'este miembro'}?\n\n'
             'El miembro seleccionado pasará a ser el administrador principal '
             'y tu cuenta quedará como líder de área.\n\n'
-            'Perderás el acceso a la gestión de miembros y configuración de la iglesia.',
+            'Perderás el acceso a la edición de miembros y configuración de la iglesia.',
           ),
           actions: [
             TextButton(
@@ -123,6 +124,7 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
     Map<String, dynamic> miembro, {
     required bool esAdminPrincipal,
   }) async {
+    if (!_esAdmin) return;
     final descripcionCtrl = TextEditingController(
       text: miembro['descripcion']?.toString() ?? '',
     );
@@ -265,6 +267,7 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
   }
 
   Future<void> _quitarMiembro(String uid, Map<String, dynamic> miembro) async {
+    if (!_esAdmin) return;
     if (uid == widget.usuario.uid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -375,7 +378,7 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
 
     final textoSecundario = theme.colorScheme.onSurfaceVariant;
 
-    if (!_esAdmin) {
+    if (!puedeExportarMiembros(widget.usuario)) {
       return Scaffold(
         body: Center(
           child: Text(
@@ -413,59 +416,60 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
 
           return Column(
             children: [
-              Container(
-                margin: const EdgeInsets.all(16),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: oscuro
-                      ? const Color(0xFF111C2E)
-                      : const Color(0xFFEFF6FF),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFF3B82F6)),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Código de Invitación',
-                            style: TextStyle(
-                              color: Color(0xFF3B82F6),
-                              fontSize: 12,
+              if (_esAdmin)
+                Container(
+                  margin: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: oscuro
+                        ? const Color(0xFF111C2E)
+                        : const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFF3B82F6)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Código de Invitación',
+                              style: TextStyle(
+                                color: Color(0xFF3B82F6),
+                                fontSize: 12,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            codigo,
-                            style: TextStyle(
-                              color: textoPrincipal,
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1,
+                            const SizedBox(height: 4),
+                            Text(
+                              codigo,
+                              style: TextStyle(
+                                color: textoPrincipal,
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
 
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF3B82F6),
-                        foregroundColor: Colors.white,
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF3B82F6),
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: codigo.isEmpty
+                            ? null
+                            : () {
+                                _copiarCodigo(codigo);
+                              },
+                        icon: const Icon(Icons.copy, size: 18),
+                        label: const Text('Copiar'),
                       ),
-                      onPressed: codigo.isEmpty
-                          ? null
-                          : () {
-                              _copiarCodigo(codigo);
-                            },
-                      icon: const Icon(Icons.copy, size: 18),
-                      label: const Text('Copiar'),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
 
               Expanded(
                 child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -491,16 +495,6 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
 
                     final docs = snapshot.data?.docs ?? [];
 
-                    if (docs.isEmpty) {
-                      return Center(
-                        child: Text(
-                          'No hay miembros en '
-                          'esta congregación.',
-                          style: TextStyle(color: textoSecundario),
-                        ),
-                      );
-                    }
-
                     final miembros = [...docs];
 
                     miembros.sort((a, b) {
@@ -513,7 +507,7 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
                       return nombreA.compareTo(nombreB);
                     });
 
-                    return ListView.builder(
+                    final lista = ListView.builder(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                       itemCount: miembros.length,
                       itemBuilder: (context, index) {
@@ -600,23 +594,24 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
                                 ),
                               ),
 
-                              IconButton(
-                                tooltip: 'Editar miembro',
-                                onPressed: _transfiriendo
-                                    ? null
-                                    : () {
-                                        _editarMiembro(
-                                          doc.id,
-                                          miembro,
-                                          esAdminPrincipal:
-                                              doc.id == adminPrincipalUid,
-                                        );
-                                      },
-                                icon: Icon(
-                                  Icons.manage_accounts,
-                                  color: textoSecundario,
+                              if (_esAdmin)
+                                IconButton(
+                                  tooltip: 'Editar miembro',
+                                  onPressed: _transfiriendo
+                                      ? null
+                                      : () {
+                                          _editarMiembro(
+                                            doc.id,
+                                            miembro,
+                                            esAdminPrincipal:
+                                                doc.id == adminPrincipalUid,
+                                          );
+                                        },
+                                  icon: Icon(
+                                    Icons.manage_accounts,
+                                    color: textoSecundario,
+                                  ),
                                 ),
-                              ),
 
                               if (_esAdmin &&
                                   adminPrincipalUid == widget.usuario.uid &&
@@ -635,25 +630,47 @@ class _GestionMiembrosScreenState extends State<GestionMiembrosScreen> {
                                   ),
                                 ),
 
-                              IconButton(
-                                tooltip: 'Quitar de la congregación',
-                                onPressed:
-                                    _transfiriendo ||
-                                        doc.id == widget.usuario.uid ||
-                                        doc.id == adminPrincipalUid
-                                    ? null
-                                    : () {
-                                        _quitarMiembro(doc.id, miembro);
-                                      },
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  color: Colors.redAccent,
+                              if (_esAdmin)
+                                IconButton(
+                                  tooltip: 'Quitar de la congregación',
+                                  onPressed:
+                                      _transfiriendo ||
+                                          doc.id == widget.usuario.uid ||
+                                          doc.id == adminPrincipalUid
+                                      ? null
+                                      : () {
+                                          _quitarMiembro(doc.id, miembro);
+                                        },
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    color: Colors.redAccent,
+                                  ),
                                 ),
-                              ),
                             ],
                           ),
                         );
                       },
+                    );
+                    return Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: ExportarMiembrosButton(
+                            usuario: widget.usuario,
+                            miembros: docs.map((doc) => doc.data()),
+                            nombreIglesia: iglesia['nombre']?.toString(),
+                          ),
+                        ),
+                        Expanded(
+                          child: docs.isEmpty
+                              ? const Center(
+                                  child: Text(
+                                    'No hay miembros en esta congregación.',
+                                  ),
+                                )
+                              : lista,
+                        ),
+                      ],
                     );
                   },
                 ),

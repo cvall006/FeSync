@@ -3,6 +3,9 @@
   "description": "Cloud Functions de FeSync",
   "private": true,
   "main": "index.js",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
   "engines": {
     "node": "24"
   },

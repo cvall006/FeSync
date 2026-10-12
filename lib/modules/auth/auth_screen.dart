@@ -149,8 +149,6 @@ class _AuthScreenState extends State<AuthScreen> {
 
     final surface = theme.colorScheme.surface;
 
-    final onSurface = theme.colorScheme.onSurface;
-
     final secondary = theme.colorScheme.onSurfaceVariant;
 
     final border = oscuro ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
@@ -170,21 +168,13 @@ class _AuthScreenState extends State<AuthScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.sync, size: 54, color: Color(0xFF3B82F6)),
-
-                const SizedBox(height: 8),
-
-                Text(
-                  'FeSync',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: onSurface,
-                  ),
+               Image.asset(
+               'assets/logo/Logo1.png',
+                width: 180,
+                fit: BoxFit.contain,
                 ),
-
-                const SizedBox(height: 4),
-
+                const SizedBox(height: 12),
+                
                 Text(
                   _esLogin
                       ? 'Inicia sesión para continuar'
