@@ -329,6 +329,27 @@ service cloud.firestore {
           );
       }
 
+      match /capacitaciones_categorias/{categoriaId} {
+        allow read: if perteneceAIglesia(iglesiaId);
+        function categoriaValida() {
+          return request.resource.data.keys().hasOnly([
+            'nombre', 'descripcion', 'orden', 'activa', 'fechaCreacion', 'creadorUid'
+          ]) && request.resource.data.nombre is string &&
+            request.resource.data.nombre.size() > 0 &&
+            request.resource.data.descripcion is string &&
+            request.resource.data.orden is int &&
+            request.resource.data.activa is bool &&
+            request.resource.data.fechaCreacion is timestamp &&
+            request.resource.data.creadorUid is string;
+        }
+        allow create: if esAdminOLider(iglesiaId) && categoriaValida() &&
+          request.resource.data.creadorUid == uid();
+        allow update: if esAdminOLider(iglesiaId) && categoriaValida() &&
+          request.resource.data.creadorUid == resource.data.creadorUid &&
+          request.resource.data.fechaCreacion == resource.data.fechaCreacion;
+        allow delete: if esAdminOLider(iglesiaId);
+      }
+
       /*
        * ======================================================
        * ESCUELA BÍBLICA

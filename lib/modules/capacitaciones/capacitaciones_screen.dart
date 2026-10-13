@@ -1,674 +1,336 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/models/app_models.dart';
+import 'capacitaciones_detalle.dart';
+import 'capacitaciones_editor.dart';
+import 'capacitaciones_logica.dart';
 import 'capacitaciones_models.dart';
+import 'capacitaciones_service.dart';
+import 'capacitaciones_widgets.dart';
 
 class CapacitacionesScreen extends StatefulWidget {
   final UsuarioModel usuario;
-
   const CapacitacionesScreen({super.key, required this.usuario});
-
   @override
   State<CapacitacionesScreen> createState() => _CapacitacionesScreenState();
 }
 
 class _CapacitacionesScreenState extends State<CapacitacionesScreen> {
-  final TextEditingController _buscarCtrl = TextEditingController();
-
-  String _busqueda = '';
-
-  CollectionReference get _capacitacionesRef => FirebaseFirestore.instance
-      .collection('iglesias')
-      .doc(widget.usuario.iglesiaId)
-      .collection('capacitaciones');
-
-  bool get _esAdmin =>
-      widget.usuario.rolGlobal == 'admin_iglesia' ||
-      widget.usuario.rolGlobal == 'lider_area';
+  late final CapacitacionesService _service;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _contenidos;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _categorias;
+  final _buscar = TextEditingController();
+  String? _categoriaId;
+  String _nombreCategoria = 'General';
+  bool _eliminando = false;
+  bool get _administrador => puedeAdministrarCapacitaciones(widget.usuario);
+  @override
+  void initState() {
+    super.initState();
+    _service = CapacitacionesService(widget.usuario);
+    _contenidos = _service.contenidos
+        .orderBy('fechaCreacion', descending: true)
+        .snapshots();
+    _categorias = _service.categorias.snapshots();
+  }
 
   @override
   void dispose() {
-    _buscarCtrl.dispose();
-
+    _buscar.dispose();
     super.dispose();
   }
 
-  String? _obtenerYoutubeId(String url) {
-    final uri = Uri.tryParse(url);
-
-    if (uri == null) {
-      return null;
-    }
-
-    if (uri.host.contains('youtu.be')) {
-      if (uri.pathSegments.isNotEmpty) {
-        return uri.pathSegments.first;
-      }
-    }
-
-    if (uri.host.contains('youtube.com')) {
-      final videoId = uri.queryParameters['v'];
-
-      if (videoId != null && videoId.isNotEmpty) {
-        return videoId;
-      }
-
-      final segmentos = uri.pathSegments;
-
-      final liveIndex = segmentos.indexOf('live');
-
-      if (liveIndex != -1 && liveIndex + 1 < segmentos.length) {
-        return segmentos[liveIndex + 1];
-      }
-
-      final shortsIndex = segmentos.indexOf('shorts');
-
-      if (shortsIndex != -1 && shortsIndex + 1 < segmentos.length) {
-        return segmentos[shortsIndex + 1];
-      }
-
-      final embedIndex = segmentos.indexOf('embed');
-
-      if (embedIndex != -1 && embedIndex + 1 < segmentos.length) {
-        return segmentos[embedIndex + 1];
-      }
-    }
-
-    return null;
-  }
-
-  String? _obtenerMiniaturaYoutube(String url) {
-    final id = _obtenerYoutubeId(url);
-
-    if (id == null || id.isEmpty) {
-      return null;
-    }
-
-    return 'https://img.youtube.com/vi/$id/hqdefault.jpg';
-  }
-
-  Future<void> _abrirVideo(String link) async {
-    final uri = Uri.tryParse(link);
-
-    if (uri == null) {
-      return;
-    }
-
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
-  }
-
-  Future<void> _abrirEditor({CapacitacionModel? existente}) async {
-    final tituloCtrl = TextEditingController(text: existente?.titulo ?? '');
-
-    final descripcionCtrl = TextEditingController(
-      text: existente?.descripcion ?? '',
-    );
-
-    final contenidoCtrl = TextEditingController(
-      text: existente?.contenido ?? '',
-    );
-
-    final linkCtrl = TextEditingController(text: existente?.linkVideo ?? '');
-
-    String tipoSeleccionado = existente?.tipo == 'texto' ? 'texto' : 'video';
-
+  Future<void> _editarContenido(
+    List<CapacitacionCategoriaModel> categorias, {
+    CapacitacionModel? contenido,
+  }) async {
+    if (!_administrador) return;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      builder: (_) => CapacitacionEditor(
+        service: _service,
+        categorias: categorias,
+        existente: contenido,
+        categoriaInicial: _categoriaId ?? '',
       ),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final theme = Theme.of(context);
-
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 24,
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      existente == null
-                          ? 'Nueva Capacitación'
-                          : 'Editar Capacitación',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.onSurface,
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    DropdownButtonFormField<String>(
-                      initialValue: tipoSeleccionado,
-                      decoration: const InputDecoration(
-                        labelText: 'Tipo de capacitación',
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'video',
-                          child: Text('Video de YouTube'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'texto',
-                          child: Text('Lectura / Reflexión'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) {
-                          return;
-                        }
-
-                        setModalState(() {
-                          tipoSeleccionado = value;
-                        });
-                      },
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    TextField(
-                      controller: tituloCtrl,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: const InputDecoration(labelText: 'Título'),
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    TextField(
-                      controller: descripcionCtrl,
-                      maxLines: 2,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: const InputDecoration(
-                        labelText: 'Breve descripción (subtítulo)',
-                      ),
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    if (tipoSeleccionado == 'video')
-                      TextField(
-                        controller: linkCtrl,
-                        keyboardType: TextInputType.url,
-                        decoration: const InputDecoration(
-                          labelText: 'Link del video (YouTube)',
-                          prefixIcon: Icon(Icons.link),
-                        ),
-                      )
-                    else
-                      TextField(
-                        controller: contenidoCtrl,
-                        minLines: 5,
-                        maxLines: 12,
-                        textCapitalization: TextCapitalization.sentences,
-                        decoration: const InputDecoration(
-                          labelText: 'Contenido de la lectura / reflexión',
-                          alignLabelWithHint: true,
-                        ),
-                      ),
-
-                    const SizedBox(height: 24),
-
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF06B6D4),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(28),
-                          ),
-                        ),
-                        onPressed: () async {
-                          if (tituloCtrl.text.trim().isEmpty) {
-                            return;
-                          }
-
-                          if (tipoSeleccionado == 'video' &&
-                              linkCtrl.text.trim().isEmpty) {
-                            return;
-                          }
-
-                          if (tipoSeleccionado == 'texto' &&
-                              contenidoCtrl.text.trim().isEmpty) {
-                            return;
-                          }
-
-                          final datos = {
-                            'titulo': tituloCtrl.text.trim(),
-                            'descripcion': descripcionCtrl.text.trim(),
-                            'tipo': tipoSeleccionado,
-                            'linkVideo': tipoSeleccionado == 'video'
-                                ? linkCtrl.text.trim()
-                                : '',
-                            'contenido': tipoSeleccionado == 'texto'
-                                ? contenidoCtrl.text.trim()
-                                : '',
-                          };
-
-                          if (existente == null) {
-                            await _capacitacionesRef.add({
-                              ...datos,
-                              'fechaCreacion': FieldValue.serverTimestamp(),
-                            });
-                          } else {
-                            await _capacitacionesRef
-                                .doc(existente.id)
-                                .update(datos);
-                          }
-
-                          if (!ctx.mounted) {
-                            return;
-                          }
-
-                          Navigator.pop(ctx);
-                        },
-                        child: Text(
-                          existente == null ? 'Publicar' : 'Guardar Cambios',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
     );
-
-    tituloCtrl.dispose();
-    descripcionCtrl.dispose();
-    contenidoCtrl.dispose();
-    linkCtrl.dispose();
   }
 
-  Future<void> _eliminar(CapacitacionModel capacitacion) async {
-    final confirmado =
-        await showDialog<bool>(
-          context: context,
-          builder: (ctx) {
-            return AlertDialog(
-              title: const Text('Eliminar capacitación'),
-              content: Text(
-                '¿Deseas eliminar '
-                '"${capacitacion.titulo}"?',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(ctx, false);
-                  },
-                  child: const Text('Cancelar'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(ctx, true);
-                  },
-                  child: const Text(
-                    'Eliminar',
-                    style: TextStyle(color: Colors.redAccent),
-                  ),
-                ),
-              ],
-            );
-          },
-        ) ??
-        false;
-
-    if (!confirmado) {
-      return;
-    }
-
-    await _capacitacionesRef.doc(capacitacion.id).delete();
-  }
-
-  void _abrirCapacitacion(CapacitacionModel capacitacion) {
-    if (capacitacion.esVideo) {
-      _abrirVideo(capacitacion.linkVideo);
-
-      return;
-    }
-
-    showDialog<void>(
+  Future<void> _editarCategoria(
+    List<CapacitacionCategoriaModel> categorias, {
+    CapacitacionCategoriaModel? categoria,
+  }) async {
+    if (!_administrador) return;
+    await showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) {
-        final theme = Theme.of(ctx);
-
-        return AlertDialog(
-          title: Text(
-            capacitacion.titulo,
-            style: TextStyle(
-              color: theme.colorScheme.onSurface,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          content: SingleChildScrollView(
-            child: Text(
-              capacitacion.contenido,
-              style: TextStyle(
-                color: theme.colorScheme.onSurfaceVariant,
-                height: 1.5,
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-              },
-              child: const Text('Cerrar'),
-            ),
-          ],
-        );
-      },
+      isScrollControlled: true,
+      builder: (_) => CategoriaCapacitacionEditor(
+        service: _service,
+        existente: categoria,
+        ordenInicial: categorias.length,
+      ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    final oscuro = theme.brightness == Brightness.dark;
-
-    final surface = theme.colorScheme.surface;
-
-    final onSurface = theme.colorScheme.onSurface;
-
-    final secondary = theme.colorScheme.onSurfaceVariant;
-
-    final border = oscuro ? const Color(0xFF26313D) : const Color(0xFFE2E8F0);
-
-    final searchBackground = oscuro ? const Color(0xFF11151A) : Colors.white;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Capacitaciones',
-          style: TextStyle(fontWeight: FontWeight.bold),
+  Future<void> _eliminar(CapacitacionModel contenido) async {
+    if (!_administrador || _eliminando) return;
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar capacitación'),
+        content: Text(
+          '¿Deseas eliminar "${contenido.titulo}" y su archivo adjunto?',
         ),
-        centerTitle: true,
-      ),
-      floatingActionButton: _esAdmin
-          ? FloatingActionButton(
-              backgroundColor: const Color(0xFF06B6D4),
-              foregroundColor: Colors.white,
-              onPressed: () {
-                _abrirEditor();
-              },
-              child: const Icon(Icons.add),
-            )
-          : null,
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
-            child: TextField(
-              controller: _buscarCtrl,
-              onChanged: (value) {
-                setState(() {
-                  _busqueda = value.trim().toLowerCase();
-                });
-              },
-              decoration: InputDecoration(
-                hintText: 'Buscar por título o tema...',
-                prefixIcon: const Icon(Icons.search),
-                filled: true,
-                fillColor: searchBackground,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide(color: border),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide(color: border),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: const BorderSide(color: Color(0xFF06B6D4)),
-                ),
-              ),
-            ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
           ),
-
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: _capacitacionesRef
-                  .orderBy('fechaCreacion', descending: true)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(
-                        'No fue posible cargar las capacitaciones.\n'
-                        '${snapshot.error}',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.redAccent),
-                      ),
-                    ),
-                  );
-                }
-
-                final capacitaciones =
-                    snapshot.data?.docs
-                        .map(
-                          (doc) => CapacitacionModel.fromMap(
-                            doc.data() as Map<String, dynamic>,
-                            doc.id,
-                          ),
-                        )
-                        .where((capacitacion) {
-                          if (_busqueda.isEmpty) {
-                            return true;
-                          }
-
-                          return capacitacion.titulo.toLowerCase().contains(
-                                _busqueda,
-                              ) ||
-                              capacitacion.descripcion.toLowerCase().contains(
-                                _busqueda,
-                              ) ||
-                              capacitacion.contenido.toLowerCase().contains(
-                                _busqueda,
-                              );
-                        })
-                        .toList() ??
-                    [];
-
-                if (capacitaciones.isEmpty) {
-                  return Center(
-                    child: Text(
-                      _busqueda.isEmpty
-                          ? 'No hay capacitaciones disponibles.'
-                          : 'No se encontraron resultados.',
-                      style: TextStyle(color: secondary),
-                    ),
-                  );
-                }
-
-                return ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 90),
-                  itemCount: capacitaciones.length,
-                  itemBuilder: (context, index) {
-                    final capacitacion = capacitaciones[index];
-
-                    final miniatura = capacitacion.esVideo
-                        ? _obtenerMiniaturaYoutube(capacitacion.linkVideo)
-                        : null;
-
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      color: surface,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                        side: BorderSide(color: border),
-                      ),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(18),
-                        onTap: () {
-                          _abrirCapacitacion(capacitacion);
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 120,
-                                height: 82,
-                                clipBehavior: Clip.antiAlias,
-                                decoration: BoxDecoration(
-                                  color: oscuro
-                                      ? const Color(0xFF1A1D24)
-                                      : const Color(0xFFF1F5F9),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: miniatura != null
-                                    ? Image.network(
-                                        miniatura,
-                                        fit: BoxFit.cover,
-                                        errorBuilder:
-                                            (context, error, stackTrace) {
-                                              return const Icon(
-                                                Icons.play_circle_outline,
-                                                size: 36,
-                                                color: Color(0xFF06B6D4),
-                                              );
-                                            },
-                                      )
-                                    : const Icon(
-                                        Icons.menu_book,
-                                        size: 36,
-                                        color: Color(0xFF06B6D4),
-                                      ),
-                              ),
-
-                              const SizedBox(width: 16),
-
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: capacitacion.esVideo
-                                            ? Colors.red.withValues(alpha: 0.15)
-                                            : const Color(0xFF06B6D4)
-                                                  .withValues(alpha: 0.15),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Text(
-                                        capacitacion.esVideo
-                                            ? 'VIDEO'
-                                            : 'LECTURA',
-                                        style: TextStyle(
-                                          color: capacitacion.esVideo
-                                              ? Colors.redAccent
-                                              : const Color(0xFF06B6D4),
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-
-                                    const SizedBox(height: 10),
-
-                                    Text(
-                                      capacitacion.titulo,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: onSurface,
-                                        fontSize: 17,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-
-                                    const SizedBox(height: 6),
-
-                                    Text(
-                                      capacitacion.descripcion,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: secondary,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-
-                              if (_esAdmin)
-                                PopupMenuButton<String>(
-                                  color: surface,
-                                  icon: Icon(Icons.more_vert, color: secondary),
-                                  onSelected: (value) {
-                                    if (value == 'editar') {
-                                      _abrirEditor(existente: capacitacion);
-                                    }
-
-                                    if (value == 'eliminar') {
-                                      _eliminar(capacitacion);
-                                    }
-                                  },
-                                  itemBuilder: (context) => const [
-                                    PopupMenuItem(
-                                      value: 'editar',
-                                      child: Text('Editar'),
-                                    ),
-                                    PopupMenuItem(
-                                      value: 'eliminar',
-                                      child: Text(
-                                        'Eliminar',
-                                        style: TextStyle(
-                                          color: Colors.redAccent,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Eliminar'),
           ),
         ],
       ),
     );
+    if (confirmado != true || !mounted) return;
+    setState(() => _eliminando = true);
+    try {
+      final aviso = await _service.eliminarContenido(contenido);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(aviso ?? 'Capacitación eliminada.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No fue posible eliminar: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _eliminando = false);
+    }
   }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: _categoriaId == null,
+    onPopInvokedWithResult: (didPop, result) {
+      if (!didPop && _categoriaId != null) {
+        setState(() {
+          _categoriaId = null;
+          _buscar.clear();
+        });
+      }
+    },
+    child: Scaffold(
+      appBar: AppBar(
+        title: Text(_categoriaId == null ? 'Capacitaciones' : _nombreCategoria),
+        leading: _categoriaId == null
+            ? null
+            : IconButton(
+                tooltip: 'Volver a temas',
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => setState(() {
+                  _categoriaId = null;
+                  _buscar.clear();
+                }),
+              ),
+      ),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: _categorias,
+        builder: (context, categoriasSnapshot) {
+          if (categoriasSnapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final todasCategorias =
+              categoriasSnapshot.data?.docs
+                  .map(
+                    (doc) =>
+                        CapacitacionCategoriaModel.fromMap(doc.data(), doc.id),
+                  )
+                  .toList() ??
+              [];
+          final categorias = categoriasVisibles(
+            todasCategorias,
+            _administrador,
+          );
+          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: _contenidos,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text(
+                      'No fue posible cargar las capacitaciones.\n${snapshot.error}',
+                    ),
+                  ),
+                );
+              }
+              final todos =
+                  snapshot.data?.docs
+                      .map(
+                        (doc) => CapacitacionModel.fromMap(doc.data(), doc.id),
+                      )
+                      .toList() ??
+                  [];
+              final disponibles = todos.where((c) {
+                if (_administrador) return true;
+                if (categoriasSnapshot.hasError) return c.categoriaId.isEmpty;
+                final categoria = todasCategorias
+                    .where((cat) => cat.id == c.categoriaId)
+                    .firstOrNull;
+                return categoria == null || categoria.activa;
+              }).toList();
+              final coincidencias = filtrarCapacitaciones(
+                disponibles,
+                _buscar.text,
+                categoriaId: _categoriaId,
+                categorias: todasCategorias,
+              );
+              final verContenidos =
+                  _categoriaId != null || _buscar.text.trim().isNotEmpty;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (categoriasSnapshot.hasError)
+                    const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Text(
+                        'Las categorías no están disponibles. Puedes consultar los contenidos de General.',
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: TextField(
+                      controller: _buscar,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        labelText: 'Buscar por título o descripción',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _buscar.text.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () =>
+                                    setState(() => _buscar.clear()),
+                                icon: const Icon(Icons.clear),
+                                tooltip: 'Limpiar búsqueda',
+                              ),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: AccionesCapacitaciones(
+                      usuario: widget.usuario,
+                      nuevaCategoria: () => _editarCategoria(todasCategorias),
+                      nuevoContenido: () => _editarContenido(todasCategorias),
+                    ),
+                  ),
+                  if (_eliminando) const LinearProgressIndicator(),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: verContenidos
+                        ? coincidencias.isEmpty
+                              ? const Center(
+                                  child: Text(
+                                    'No hay contenidos que coincidan con la búsqueda.',
+                                  ),
+                                )
+                              : ListView.builder(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    0,
+                                    16,
+                                    24,
+                                  ),
+                                  itemCount: coincidencias.length,
+                                  itemBuilder: (_, i) {
+                                    final c = coincidencias[i];
+                                    return TarjetaCapacitacion(
+                                      capacitacion: c,
+                                      abrir: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              CapacitacionDetalleScreen(
+                                                capacitacion: c,
+                                                service: _service,
+                                              ),
+                                        ),
+                                      ),
+                                      editar: _administrador
+                                          ? () => _editarContenido(
+                                              todasCategorias,
+                                              contenido: c,
+                                            )
+                                          : null,
+                                      eliminar: _administrador && !_eliminando
+                                          ? () => _eliminar(c)
+                                          : null,
+                                    );
+                                  },
+                                )
+                        : ListView(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                            children: [
+                              Text(
+                                'Temas',
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              if (todasCategorias.isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 12),
+                                  child: Text(
+                                    'Todavía no hay categorías. Los contenidos existentes están en General.',
+                                  ),
+                                ),
+                              for (final categoria in categorias)
+                                Card(
+                                  child: ListTile(
+                                    title: Text(
+                                      '${categoria.nombre}${categoria.activa ? '' : ' (inactiva)'}',
+                                    ),
+                                    subtitle: Text(
+                                      '${categoria.descripcion}\n${disponibles.where((c) => categoriaEfectiva(c, todasCategorias) == categoria.id).length} contenidos',
+                                    ),
+                                    isThreeLine:
+                                        categoria.descripcion.isNotEmpty,
+                                    trailing:
+                                        _administrador &&
+                                            categoria.id.isNotEmpty
+                                        ? IconButton(
+                                            tooltip: 'Editar categoría',
+                                            icon: const Icon(Icons.edit),
+                                            onPressed: () => _editarCategoria(
+                                              todasCategorias,
+                                              categoria: categoria,
+                                            ),
+                                          )
+                                        : const Icon(Icons.chevron_right),
+                                    onTap: () => setState(() {
+                                      _categoriaId = categoria.id;
+                                      _nombreCategoria = categoria.nombre;
+                                      _buscar.clear();
+                                    }),
+                                  ),
+                                ),
+                            ],
+                          ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
+    ),
+  );
 }

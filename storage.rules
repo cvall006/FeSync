@@ -30,10 +30,40 @@ service firebase.storage {
         );
     }
 
-    /*
-     * No existen todavía otros uploads que necesitemos
-     * exponer desde el cliente.
-     */
+    function miembroIglesia(iglesiaId) {
+      return autenticado() &&
+        firestore.exists(/databases/(default)/documents/usuarios_globales/$(request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/usuarios_globales/$(request.auth.uid)).data.get('iglesiaId', '') == iglesiaId;
+    }
+
+    function administraIglesia(iglesiaId) {
+      return miembroIglesia(iglesiaId) &&
+        firestore.get(/databases/(default)/documents/usuarios_globales/$(request.auth.uid)).data.get('rolGlobal', '') in ['admin_iglesia', 'lider_area'];
+    }
+
+    function materialValido(archivo) {
+      let mime = request.resource.contentType;
+      return request.resource.size > 0 && request.resource.size <= 25 * 1024 * 1024 && (
+        (archivo.matches('(?i).*[.]pdf') && mime == 'application/pdf') ||
+        (archivo.matches('(?i).*[.]html?') && mime == 'text/html' && request.resource.contentDisposition.matches('attachment.*')) ||
+        (archivo.matches('(?i).*[.]txt') && mime == 'text/plain') ||
+        (archivo.matches('(?i).*[.]png') && mime == 'image/png') ||
+        (archivo.matches('(?i).*[.]jpe?g') && mime == 'image/jpeg') ||
+        (archivo.matches('(?i).*[.]doc') && mime == 'application/msword') ||
+        (archivo.matches('(?i).*[.]ppt') && mime == 'application/vnd.ms-powerpoint') ||
+        (archivo.matches('(?i).*[.]xls') && mime == 'application/vnd.ms-excel') ||
+        (archivo.matches('(?i).*[.]docx') && mime == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') ||
+        (archivo.matches('(?i).*[.]pptx') && mime == 'application/vnd.openxmlformats-officedocument.presentationml.presentation') ||
+        (archivo.matches('(?i).*[.]xlsx') && mime == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      );
+    }
+
+    match /capacitaciones/{iglesiaId}/{categoriaId}/{capacitacionId}/{archivo} {
+      allow read: if miembroIglesia(iglesiaId);
+      allow create, update: if administraIglesia(iglesiaId) && materialValido(archivo);
+      allow delete: if administraIglesia(iglesiaId);
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }
