@@ -1,0 +1,12 @@
+{
+  "functions": [{ "source": "functions/test/finanzas_mvp_runtime", "codebase": "finanzas-mvp-demo" }],
+  "firestore": { "rules": "firestore.rules" },
+  "emulators": {
+    "auth": { "host": "127.0.0.1", "port": 9098 },
+    "functions": { "host": "127.0.0.1", "port": 5008 },
+    "firestore": { "host": "127.0.0.1", "port": 8088 },
+    "hub": { "host": "127.0.0.1", "port": 4408 },
+    "logging": { "host": "127.0.0.1", "port": 4508 },
+    "ui": { "enabled": false }, "singleProjectMode": true
+  }
+}

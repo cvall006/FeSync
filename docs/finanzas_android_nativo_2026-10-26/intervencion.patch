@@ -1,0 +1,70 @@
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-android-nativo-backup-XBkeiz\\files\\android\\app\\src\\debug\\google-services.json" b/android/app/src/debug/google-services.json
+index 55968a4..1e282d2 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-android-nativo-backup-XBkeiz\\files\\android\\app\\src\\debug\\google-services.json"
++++ b/android/app/src/debug/google-services.json
+@@ -9,7 +9,7 @@
+       "mobilesdk_app_id": "1:1234567890:android:0000000000000000000000",
+       "android_client_info": { "package_name": "com.example.fesync.finanzasdemo" }
+     },
+-    "api_key": [{ "current_key": "AIzaSyDemoFeSync0000000000000000000000000" }]
++    "api_key": [{ "current_key": "AIzaSyDemoFeSync00000000000000000000000" }]
+   }],
+   "configuration_version": "1"
+ }
+
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-android-nativo-backup-XBkeiz\\files\\lib\\core\\services\\firebase_emulator_bootstrap.dart" b/lib/core/services/firebase_emulator_bootstrap.dart
+index 758fc53..dee3407 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-android-nativo-backup-XBkeiz\\files\\lib\\core\\services\\firebase_emulator_bootstrap.dart"
++++ b/lib/core/services/firebase_emulator_bootstrap.dart
+@@ -57,7 +57,7 @@ Future<void> inicializarFirebaseEmuladores() async {
+   );
+   await Firebase.initializeApp(
+     options: FirebaseOptions(
+-      apiKey: 'AIzaSyDemoFeSync0000000000000000000000000',
++      apiKey: 'AIzaSyDemoFeSync00000000000000000000000',
+       appId: !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+           ? '1:1234567890:android:0000000000000000000000'
+           : '1:1234567890:web:demo-fesync',
+
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-android-nativo-backup-XBkeiz\\files\\test\\finanzas_mvp\\servir_web.js" b/test/finanzas_mvp/servir_web.js
+index 2ae988f..328d82a 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-android-nativo-backup-XBkeiz\\files\\test\\finanzas_mvp\\servir_web.js"
++++ b/test/finanzas_mvp/servir_web.js
+@@ -9,7 +9,7 @@ const html = fs.readFileSync(path.join(root, 'web/finanzas_demo.html'), 'utf8');
+ const csp = html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/)[1];
+ const main = fs.readFileSync(path.join(build, 'main.dart.js'), 'utf8');
+ if (!main.includes('1:1234567890:web:demo-fesync') ||
+-    !main.includes('AIzaSyDemoFeSync0000000000000000000000000')) {
++    !main.includes('AIzaSyDemoFeSync00000000000000000000000')) {
+   throw Error('La compilación no corresponde a lib/main_finanzas_demo.dart. No se sirve.');
+ }
+ const tipos = {
+
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-android-nativo-backup-XBkeiz\\files\\test\\firebase_emulator_bootstrap_test.dart" b/test/firebase_emulator_bootstrap_test.dart
+index c12ac1e..1af7d39 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-android-nativo-backup-XBkeiz\\files\\test\\firebase_emulator_bootstrap_test.dart"
++++ b/test/firebase_emulator_bootstrap_test.dart
+@@ -1,7 +1,23 @@
++import 'dart:convert';
++import 'dart:io';
++
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:fesync/core/services/firebase_emulator_bootstrap.dart';
+ 
+ void main() {
++  test('clave demo sintética compatible con la validación del SDK Android', () {
++    final bootstrap = File('lib/core/services/firebase_emulator_bootstrap.dart')
++        .readAsStringSync();
++    final clave = RegExp(r"apiKey: '([^']+)'").firstMatch(bootstrap)!.group(1)!;
++    final nativo = jsonDecode(
++      File('android/app/src/debug/google-services.json').readAsStringSync(),
++    ) as Map<String, dynamic>;
++    expect(clave, matches(RegExp(r'^A[\w-]{38}$')));
++    expect(clave, contains('DemoFeSync'));
++    expect(nativo['project_info']['project_id'], 'demo-fesync');
++    expect(nativo['client'][0]['api_key'][0]['current_key'], clave);
++  });
++
+   test('host de emuladores sin activar demo no selecciona Firebase real', () {
+     for (final debug in [true, false]) {
+       expect(

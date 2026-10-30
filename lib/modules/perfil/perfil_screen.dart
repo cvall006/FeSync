@@ -8,7 +8,6 @@ import 'package:provider/provider.dart';
 
 import '../../core/models/app_models.dart';
 import '../../core/providers/theme_provider.dart';
-import '../../core/services/notification_service.dart';
 import '../../core/widgets/safe_avatar.dart';
 
 class PerfilScreen extends StatefulWidget {
@@ -39,6 +38,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
 
   bool _guardando = false;
   bool _subiendoFoto = false;
+  bool _saliendo = false;
 
   String _fotoUrl = '';
 
@@ -201,80 +201,81 @@ class _PerfilScreenState extends State<PerfilScreen> {
   }
 
   Future<void> _confirmarSalirCongregacion() async {
-    final confirmar = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text('Salir de esta congregación'),
-          content: const Text(
-            'Tu cuenta seguirá existiendo, '
-            'pero dejarás de pertenecer a esta congregación. '
-            'Para volver a entrar necesitarás nuevamente '
-            'el código de invitación.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(ctx, false);
-              },
-              child: const Text('Cancelar'),
+    if (_saliendo) return;
+    setState(() => _saliendo = true);
+    try {
+      final confirmar = await showDialog<bool>(
+        context: context,
+        builder: (ctx) {
+          return AlertDialog(
+            title: const Text('Salir de esta congregación'),
+            content: const Text(
+              'Tu cuenta seguirá existiendo, '
+              'pero dejarás de pertenecer a esta congregación. '
+              'Para volver a entrar necesitarás nuevamente '
+              'el código de invitación.',
             ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white,
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx, false);
+                },
+                child: const Text('Cancelar'),
               ),
-              onPressed: () {
-                Navigator.pop(ctx, true);
-              },
-              child: const Text('Salir'),
-            ),
-          ],
-        );
-      },
-    );
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () {
+                  Navigator.pop(ctx, true);
+                },
+                child: const Text('Salir'),
+              ),
+            ],
+          );
+        },
+      );
 
-    if (confirmar != true) {
-      return;
-    }
-
-    if (widget.usuario.rolGlobal == 'admin_iglesia') {
-      if (!mounted) {
+      if (confirmar != true || !mounted) {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'El administrador principal no puede salir '
-            'de la congregación todavía. '
-            'Primero deberá transferir la administración.',
+      if (widget.usuario.rolGlobal == 'admin_iglesia') {
+        if (!mounted) {
+          return;
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'El administrador principal no puede salir '
+              'de la congregación todavía. '
+              'Primero deberá transferir la administración.',
+            ),
           ),
-        ),
-      );
+        );
 
-      return;
-    }
+        return;
+      }
 
-    try {
-      await NotificationService.instance.desvincularUsuario();
-
-      await _usuarioRef.update({
-        'iglesiaId': FieldValue.delete(),
-        'rolGlobal': FieldValue.delete(),
-      });
-
+      // RootGate coordina intención, recuperación y perfil vigente. El backend
+      // retira FCM legado; no limpiar aquí dispositivos ni el token físico.
       await widget.onSalirCongregacion();
-    } catch (error) {
+    } catch (_) {
       if (!mounted) {
         return;
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('No fue posible salir de la congregación: $error'),
+          content: Text(
+            'No fue posible verificar la salida. Conserva la solicitud y revisa su estado.',
+          ),
         ),
       );
+    } finally {
+      if (mounted) setState(() => _saliendo = false);
     }
   }
 
@@ -397,21 +398,24 @@ class _PerfilScreenState extends State<PerfilScreen> {
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(color: colorBorde),
                   ),
-                  child: SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    secondary: const Icon(
-                      Icons.dark_mode,
-                      color: Color(0xFF6366F1),
-                    ),
-                    title: Text(
-                      'Modo Oscuro',
-                      style: TextStyle(
-                        color: colorTexto,
-                        fontWeight: FontWeight.bold,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      secondary: const Icon(
+                        Icons.dark_mode,
+                        color: Color(0xFF6366F1),
                       ),
+                      title: Text(
+                        'Modo Oscuro',
+                        style: TextStyle(
+                          color: colorTexto,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      value: modoOscuro,
+                      onChanged: _cambiarTema,
                     ),
-                    value: modoOscuro,
-                    onChanged: _cambiarTema,
                   ),
                 ),
 
@@ -484,7 +488,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
                       foregroundColor: Colors.orange,
                       side: const BorderSide(color: Colors.orange),
                     ),
-                    onPressed: _confirmarSalirCongregacion,
+                    onPressed: _saliendo ? null : _confirmarSalirCongregacion,
                     icon: const Icon(Icons.church_outlined),
                     label: const Text(
                       'Salir de esta Congregación',

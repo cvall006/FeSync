@@ -9,6 +9,8 @@ import '../capacitaciones/capacitaciones_screen.dart';
 import '../comunidad/comunidad_screen.dart';
 import '../configuracion/configuracion_modulos_screen.dart';
 import '../escuela/escuela_screen.dart';
+import '../finanzas/finanzas_mvp_screen.dart';
+import '../finanzas/finanzas_mantenimiento_screen.dart';
 import '../miembros/gestion_miembros_screen.dart';
 import '../perfil/perfil_screen.dart';
 import '../servidores/servidores_screen.dart';
@@ -131,6 +133,18 @@ class DashboardScreen extends StatelessWidget {
           },
         ),
         actions: [
+          if (usuario.rolGlobal == 'admin_iglesia')
+            IconButton(
+              tooltip: 'Mantenimiento de Finanzas',
+              icon: const Icon(Icons.account_balance),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      FinanzasMantenimientoScreen(iglesiaId: usuario.iglesiaId),
+                ),
+              ),
+            ),
           if (usuario.rolGlobal == 'admin_iglesia' ||
               usuario.rolGlobal == 'lider_area')
             IconButton(
@@ -349,6 +363,13 @@ class DashboardScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    AccesoFinanzasMvp(
+                      key: ValueKey(
+                        '${usuario.uid}:${usuario.iglesiaId}:'
+                        '${usuarioData?['pertenenciaId']}:'
+                        '${usuarioData?['rolGlobal']}:${data['adminUid']}',
+                      ),
+                    ),
                     Text(
                       'Módulos Congregacionales',
                       style: Theme.of(context).textTheme.titleLarge

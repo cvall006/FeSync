@@ -1,0 +1,48 @@
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-web-candidato-backup-QbOuCz\\files\\firestore.rules" b/firestore.rules
+index f8003d5..2af1861 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-web-candidato-backup-QbOuCz\\files\\firestore.rules"
++++ b/firestore.rules
+@@ -83,6 +83,13 @@ service cloud.firestore {
+           .hasAny(['iglesiaId', 'rolGlobal', 'pertenenciaId']);
+       }
+ 
++      // Compatibilidad solo para perfiles sin generación financiera verificable.
++      // No permite quitar una generación ni añadirla desde el cliente.
++      function legadoSinPertenencia() {
++        return !('pertenenciaId' in resource.data) &&
++          !('pertenenciaId' in request.resource.data);
++      }
++
+       /*
+        * Cada usuario puede leer su propio perfil.
+        *
+@@ -155,6 +162,29 @@ service cloud.firestore {
+ 
+       allow delete: if false;
+ 
++      allow update: if autenticado() && legadoSinPertenencia() &&
++        uid() == userId &&
++        resource.data.get('rolGlobal', '') in ['servidor', 'lider_area'] &&
++        request.resource.data.diff(resource.data).affectedKeys()
++          .hasOnly(['iglesiaId', 'rolGlobal', 'descripcion']) &&
++        !('iglesiaId' in request.resource.data) &&
++        !('rolGlobal' in request.resource.data);
++
++      allow update: if autenticado() && legadoSinPertenencia() &&
++        uid() != userId &&
++        resource.data.get('rolGlobal', '') in ['servidor', 'lider_area'] &&
++        esAdmin(resource.data.iglesiaId) &&
++        get(/databases/$(database)/documents/iglesias/$(resource.data.iglesiaId))
++          .data.get('adminUid', '') != userId &&
++        request.resource.data.diff(resource.data).affectedKeys()
++          .hasOnly(['iglesiaId', 'rolGlobal', 'descripcion']) &&
++        (
++          (request.resource.data.get('iglesiaId', '') == resource.data.iglesiaId &&
++            request.resource.data.get('rolGlobal', '') in ['servidor', 'lider_area']) ||
++          (!('iglesiaId' in request.resource.data) &&
++            !('rolGlobal' in request.resource.data))
++        );
++
+       /*
+        * ======================================================
+        * DISPOSITIVOS / TOKENS FCM

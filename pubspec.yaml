@@ -19,6 +19,7 @@ dependencies:
   firebase_storage: ^13.6.0
   firebase_messaging: ^16.7.0
   cloud_functions: ^6.5.0
+  crypto: ^3.0.7
 
   flutter_local_notifications: ^22.3.1
 
@@ -32,6 +33,7 @@ dependencies:
   mime: ^2.0.0
   web: ^1.1.1
   archive: ^4.3.0
+  flutter_secure_storage: 10.3.4
 
 dev_dependencies:
   flutter_test:

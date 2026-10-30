@@ -1,0 +1,28 @@
+'use strict';
+const assert=require('node:assert/strict'),c=require('../../functions/finanzas_v1/comun'),{crearProyeccionInicial}=require('../../functions/finanzas_core/proyecciones'),{conciliarPaginas}=require('../../functions/finanzas_core/conciliacion'),{TS}=require('./rest-transacciones.cjs'),book=require('./preparacion-libro.cjs');
+const {I,B}=book,A=B+'/finanzas_auditoria/activacion_administrativa_piloto_20261030',R=B+'/finanzas_auditoria/reversion_activacion_piloto_20261030';
+async function identidad(tx,db,uid,pertenenciaId){const church=await tx.get(db.doc(B)),profile=await tx.get(db.doc('usuarios_globales/'+uid));assert.equal(church.data()?.adminUid,uid,'TITULAR_CAMBIO');assert.deepEqual(profile.data(),{iglesiaId:I,rolGlobal:'admin_iglesia',pertenenciaId},'PERTENENCIA_CAMBIO');}
+async function activar({db,uid,pertenenciaId,periodo,guardas,respaldo,permitidas}){
+ return db.runTransaction(async tx=>{
+  await guardas();await identidad(tx,db,uid,pertenenciaId);
+  const receipt=await tx.get(db.doc(A)),docs={};for(const name of ['finanzas_control/protocolo','finanzas_control/publicacion_v1','finanzas_config/acceso']){const s=await tx.get(db.doc(B+'/'+name));assert.ok(s.exists,'DOCUMENTO_AUSENTE');docs[name]=s;}
+  const get=name=>docs[name].data();
+  if(receipt.exists){assert.equal(receipt.data().evento,'activacion_administrativa_piloto_v1');assert.equal(receipt.data().titularUid,uid);assert.equal(receipt.data().pertenenciaId,pertenenciaId);assert.equal(get('finanzas_config/acceso').moduloHabilitado,true);c.protocolo(get('finanzas_control/protocolo'),I);return{estado:'OPERATIVO_V1',repetidaSinEscrituras:true};}
+  const allowed=new Set(permitidas);for(const name of book.names)for(const p of await tx.existsIn(name))assert.ok(allowed.has(p),'DOCUMENTO_PREVIO_O_AJENO: '+name);
+  for(const name of ['finanzas_control/libro','finanzas_control/periodo','finanzas_control/incremental_v1','finanzas_config/contabilidad','finanzas_resumenes/'+periodo]){const s=await tx.get(db.doc(B+'/'+name));assert.ok(s.exists,'DOCUMENTO_AUSENTE');docs[name]=s;}
+  assert.equal(get('finanzas_control/libro').ultimaSecuencia,0,'HISTORIAL_PREVIO');assert.equal(get('finanzas_control/libro').huboMovimientos,false);c.protocolo(get('finanzas_control/protocolo'),I,true);assert.equal(get('finanzas_control/protocolo').epoca,2);
+  assert.ok(c.habilitacionValida(get('finanzas_control/publicacion_v1'),I));assert.equal(get('finanzas_config/acceso').moduloHabilitado,false);assert.equal(get('finanzas_config/acceso').encargadoUid,null);
+  assert.deepEqual(get('finanzas_control/periodo').periodosAbiertos,[periodo]);const config=get('finanzas_config/contabilidad');assert.deepEqual(config,{versionEsquema:1,iglesiaId:I,moneda:'CLP',escala:0,zonaHoraria:'America/Santiago'});
+  const inc=get('finanzas_control/incremental_v1');c.verificar(inc,get('finanzas_control/libro'),I);assert.deepEqual(inc.cuentas,{});assert.deepEqual(inc.aperturas,{});assert.deepEqual(inc.proyeccion,crearProyeccionInicial({iglesiaId:I,configuracion:c.configDinero(config),periodoId:periodo}));assert.equal(inc.verificacionInicial.versionControl,c.ver(docs['finanzas_control/libro']));assert.deepEqual(get('finanzas_resumenes/'+periodo).datos,c.resumen(inc));
+  const control=docs['finanzas_control/libro'],observacion={version:c.ver(control),datos:control.data()};
+  const r=conciliarPaginas({contexto:{iglesiaId:I,configuracion:c.configDinero(config),cuentas:[],periodos:[periodo],controlInicial:observacion,modoLectura:'PAUSA_EXTERNA_DECLARADA'},checkpoint:null,paginas:[],finDelListado:true,controlFinal:observacion,proyecciones:{corte:{secuencia:0,versionControl:c.ver(control)},saldos:[],resumenes:[{periodoId:periodo,datos:get('finanzas_resumenes/'+periodo)}],marcadores:[]}});
+  assert.equal(r.reporte.estado,'SIN_DIFERENCIAS_OBSERVADAS');
+  await respaldo(Object.fromEntries(Object.entries(docs).map(([k,s])=>[k,{version:s.versionISO,data:s.data()}])));
+  tx.update(db.doc(B+'/finanzas_config/acceso'),{moduloHabilitado:true,actualizadoPorEjecutor:'sesion_cli_autorizada',fechaActualizacion:TS});
+  tx.update(db.doc(B+'/finanzas_control/protocolo'),{estado:'operativo_v1'});
+  tx.create(db.doc(A),{evento:'activacion_administrativa_piloto_v1',iglesiaId:I,titularUid:uid,pertenenciaId,ejecutor:'sesion_cli_autorizada',periodoId:periodo,corte:0,reporteDigest:c.hash(r.reporte),certificacionHistorica:false,fechaCreacion:TS});
+  return{estado:'OPERATIVO_V1',periodo,epoca:2,verificacion:r.reporte.estado,certificacionHistorica:false};
+ });
+}
+async function cerrar({db,uid,pertenenciaId,guardas}){return db.runTransaction(async tx=>{await guardas();await identidad(tx,db,uid,pertenenciaId);const refs=['finanzas_config/acceso','finanzas_control/protocolo','finanzas_control/publicacion_v1'].map(p=>db.doc(B+'/'+p));const docs=[];for(const ref of refs)docs.push(await tx.get(ref));assert.ok(docs.every(d=>d.exists));assert.equal(docs[1].data().epoca,2);const done=await tx.get(db.doc(R));if(done.exists){assert.equal(docs[0].data().moduloHabilitado,false);assert.equal(docs[1].data().estado,'bloqueado');assert.equal(docs[2].data().habilitado,false);return{estado:'CERRADO',repetidaSinEscrituras:true};}tx.update(refs[0],{moduloHabilitado:false,actualizadoPorEjecutor:'sesion_cli_autorizada',fechaActualizacion:TS});tx.update(refs[1],{estado:'bloqueado'});tx.update(refs[2],{habilitado:false});tx.create(db.doc(R),{evento:'reversion_habilitacion_piloto_v1',iglesiaId:I,titularUid:uid,ejecutor:'sesion_cli_autorizada',fechaCreacion:TS});return{estado:'CERRADO',libroYHistorialConservados:true};});}
+module.exports={activar,cerrar,A,R};

@@ -1,0 +1,8 @@
+{
+  "name": "fesync-finanzas-rules-tests",
+  "private": true,
+  "scripts": {
+    "test": "node --test finanzas.test.js",
+    "test:regresion": "node ejecutar_pruebas.js"
+  }
+}

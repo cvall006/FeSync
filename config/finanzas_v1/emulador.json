@@ -1,0 +1,6 @@
+{
+  "FESYNC_FINANZAS_DEMO": "true",
+  "FESYNC_FINANZAS_TRANSPORTE": "emulador",
+  "FESYNC_FINANZAS_PROYECTO": "demo-fesync",
+  "FESYNC_EMULATOR_HOST": "127.0.0.1"
+}

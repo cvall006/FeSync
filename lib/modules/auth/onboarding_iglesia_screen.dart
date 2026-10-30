@@ -2,16 +2,19 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/services/auth_service.dart';
+import '../../core/services/ingreso_pendiente_service.dart';
 import '../../core/widgets/safe_avatar.dart';
 
 class OnboardingIglesiaScreen extends StatefulWidget {
   final User user;
   final VoidCallback onCompletado;
+  final AuthService? authService;
 
   const OnboardingIglesiaScreen({
     super.key,
     required this.user,
     required this.onCompletado,
+    this.authService,
   });
 
   @override
@@ -20,7 +23,23 @@ class OnboardingIglesiaScreen extends StatefulWidget {
 }
 
 class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
-  final AuthService _authService = AuthService();
+  late final AuthService _authService;
+
+  @override
+  void initState() {
+    super.initState();
+    _authService = widget.authService ?? AuthService();
+    _creandoIglesia =
+        _authService.ingreso.solicitud?.tipo ==
+        TipoIngresoPendiente.creacionIglesia;
+    _authService.ingreso.addListener(_cambioIngreso);
+  }
+
+  void _cambioIngreso() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
 
   final TextEditingController _codigoCtrl = TextEditingController();
 
@@ -36,6 +55,7 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
 
   @override
   void dispose() {
+    _authService.ingreso.removeListener(_cambioIngreso);
     _codigoCtrl.dispose();
     _iglesiaCtrl.dispose();
     _descUsuarioCtrl.dispose();
@@ -45,6 +65,20 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
   }
 
   Future<void> _completar() async {
+    if (_cargando || _authService.ingreso.ocupado) {
+      return;
+    }
+    final anterior = _authService.ingreso.solicitud;
+    final nueva = anterior == null || !anterior.estado.sinResolver;
+    if (nueva &&
+        !await _confirmar(
+          'Iniciar una nueva solicitud con los datos ingresados?',
+        )) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _cargando = true;
       _error = null;
@@ -57,7 +91,7 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
           throw Exception('Completa los campos principales.');
         }
 
-        final err = await _authService.registrarNuevaIglesia(
+        final resultado = await _authService.registrarNuevaIglesiaPersistente(
           uid: widget.user.uid,
           email: widget.user.email ?? '',
           nombreAdmin: widget.user.displayName ?? 'Pastor / Administrador',
@@ -66,27 +100,39 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
           descripcionIglesia: _descIglesiaCtrl.text.trim(),
           fotoUrlAdmin: widget.user.photoURL,
           descripcionAdmin: _descUsuarioCtrl.text.trim(),
+          confirmarNuevaIntencion: nueva,
         );
 
-        if (err != null) {
-          throw Exception(err);
+        if (!resultado.confirmado) {
+          if (mounted) {
+            setState(() {
+              _error = resultado.mensaje;
+            });
+          }
+          return;
         }
       } else {
         if (_codigoCtrl.text.trim().isEmpty) {
           throw Exception('Ingresa el código.');
         }
 
-        final err = await _authService.vincularConCodigo(
+        final resultado = await _authService.vincularConCodigoPersistente(
           uid: widget.user.uid,
           email: widget.user.email ?? '',
           nombre: widget.user.displayName ?? 'Servidor',
           codigo: _codigoCtrl.text.trim(),
           fotoUrl: widget.user.photoURL,
           descripcionUsuario: _descUsuarioCtrl.text.trim(),
+          confirmarNuevaIntencion: nueva,
         );
 
-        if (err != null) {
-          throw Exception(err);
+        if (!resultado.confirmado) {
+          if (mounted) {
+            setState(() {
+              _error = resultado.mensaje;
+            });
+          }
+          return;
         }
       }
 
@@ -101,7 +147,7 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
       }
 
       setState(() {
-        _error = e.toString().replaceAll('Exception: ', '');
+        _error = 'No se pudo completar la solicitud. Recupera su estado antes de continuar.';
       });
     } finally {
       if (mounted) {
@@ -109,6 +155,60 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
           _cargando = false;
         });
       }
+    }
+  }
+
+  Future<bool> _confirmar(String mensaje) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Confirmar intención'),
+          content: Text(mensaje),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Confirmar'),
+            ),
+          ],
+        ),
+      ) ==
+      true;
+
+  Future<void> _recuperar() async {
+    if (_cargando || _authService.ingreso.ocupado) {
+      return;
+    }
+    final resultado = await _authService.ingreso.reconciliar();
+    if (!mounted || _authService.currentUser?.uid != widget.user.uid) {
+      return;
+    }
+    setState(() {
+      _error = resultado.confirmado ? null : resultado.mensaje;
+    });
+    if (resultado.confirmado) widget.onCompletado();
+  }
+
+  Future<void> _abandonar() async {
+    final anterior = _authService.ingreso.solicitud;
+    if (anterior == null || _cargando || _authService.ingreso.ocupado) {
+      return;
+    }
+    if (!await _confirmar(
+      'Abandonar esta intención resuelta o no enviada? No se iniciará otra automáticamente.',
+    )) {
+      return;
+    }
+    final resultado = await _authService.ingreso.abandonarPendiente(
+      confirmadoPorUsuario: true,
+    );
+    if (mounted) {
+      setState(() {
+        _error = resultado.mensaje;
+      });
     }
   }
 
@@ -172,7 +272,8 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
 
                 const SizedBox(height: 24),
 
-                if (_error != null) ...[
+                if (_error != null ||
+                    _authService.ingreso.resultado != null) ...[
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
@@ -184,7 +285,7 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
                       ),
                     ),
                     child: Text(
-                      _error!,
+                      _error ?? _authService.ingreso.resultado!.mensaje,
                       style: const TextStyle(
                         color: Colors.redAccent,
                         fontSize: 13,
@@ -194,7 +295,27 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
                   const SizedBox(height: 16),
                 ],
 
+                if (_authService.ingreso.resultado != null ||
+                    _authService.ingreso.solicitud != null)
+                  TextButton(
+                    onPressed: _cargando || _authService.ingreso.ocupado
+                        ? null
+                        : _recuperar,
+                    child: const Text('Recuperar estado de la solicitud'),
+                  ),
+                if ([
+                  EstadoIngresoPendiente.pendiente,
+                  EstadoIngresoPendiente.rechazada,
+                ].contains(_authService.ingreso.solicitud?.estado))
+                  TextButton(
+                    onPressed: _cargando || _authService.ingreso.ocupado
+                        ? null
+                        : _abandonar,
+                    child: const Text('Abandonar esta intención'),
+                  ),
+
                 TextField(
+                  enabled: !_cargando && !_authService.ingreso.ocupado,
                   controller: _descUsuarioCtrl,
                   decoration: const InputDecoration(
                     labelText:
@@ -208,6 +329,7 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
 
                 if (_creandoIglesia) ...[
                   TextField(
+                    enabled: !_cargando && !_authService.ingreso.ocupado,
                     controller: _iglesiaCtrl,
                     decoration: const InputDecoration(
                       labelText: 'Nombre de la Iglesia',
@@ -218,6 +340,7 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
                   const SizedBox(height: 12),
 
                   TextField(
+                    enabled: !_cargando && !_authService.ingreso.ocupado,
                     controller: _descIglesiaCtrl,
                     decoration: const InputDecoration(
                       labelText:
@@ -231,6 +354,7 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
                 ],
 
                 TextField(
+                  enabled: !_cargando && !_authService.ingreso.ocupado,
                   controller: _codigoCtrl,
                   textCapitalization: TextCapitalization.characters,
                   decoration: InputDecoration(
@@ -256,7 +380,9 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    onPressed: _cargando ? null : _completar,
+                    onPressed: _cargando || _authService.ingreso.ocupado
+                        ? null
+                        : _completar,
                     child: _cargando
                         ? const SizedBox(
                             width: 22,
@@ -267,7 +393,14 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
                             ),
                           )
                         : Text(
-                            _creandoIglesia
+                            _authService
+                                        .ingreso
+                                        .solicitud
+                                        ?.estado
+                                        .sinResolver ==
+                                    true
+                                ? 'Reintentar la misma solicitud'
+                                : _creandoIglesia
                                 ? 'Crear Congregación'
                                 : 'Vincular y Continuar',
                             style: const TextStyle(
@@ -281,7 +414,7 @@ class _OnboardingIglesiaScreenState extends State<OnboardingIglesiaScreen> {
                 const SizedBox(height: 12),
 
                 TextButton(
-                  onPressed: _cargando
+                  onPressed: _cargando || _authService.ingreso.ocupado
                       ? null
                       : () {
                           setState(() {

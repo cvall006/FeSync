@@ -1,0 +1,6 @@
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{access}=require('./fuentes-servidor.cjs'),r=require('../finanzas_reglas_controladas_2026-10-29/remoto.cjs');
+(async()=>{const old=JSON.parse(fs.readFileSync(path.join(__dirname,'antes.json'))).functions.find(f=>f.nombre==='finanzasV1Consultar'),current=(await(await r.conectar()).listar()).find(f=>f.name===old.name),token=await access(),out=[];
+ for(const revision of [old.revision,current.serviceConfig.revision]){assert.match(revision,/^finanzasv1consultar-[a-z0-9-]+$/);const resp=await fetch('https://run.googleapis.com/v2/projects/fesync-app-2026/locations/southamerica-west1/services/finanzasv1consultar/revisions/'+revision,{headers:{Authorization:'Bearer '+token},redirect:'error',signal:AbortSignal.timeout(30000)});assert.equal(resp.status,200);const x=await resp.json();out.push({revision,scaling:x.scaling,containers:x.containers.map(c=>({image:c.image,resources:c.resources})),serviceAccount:x.serviceAccount,executionEnvironment:x.executionEnvironment});}
+ fs.writeFileSync(path.join(__dirname,'escalado-revisiones.json'),JSON.stringify(out,null,2)+'\n',{flag:'wx'});console.log(JSON.stringify(out));
+})().catch(e=>{console.error('ESCALADO_DETENIDO: '+e.message);process.exitCode=1;});

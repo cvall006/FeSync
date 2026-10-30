@@ -1,0 +1,145 @@
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release5-backup-lnBNQk\\files\\test\\finanzas_release3\\integracion.cjs" b/test/finanzas_release3/integracion.cjs
+index ecfaa09..212b51f 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release5-backup-lnBNQk\\files\\test\\finanzas_release3\\integracion.cjs"
++++ b/test/finanzas_release3/integracion.cjs
+@@ -13,9 +13,9 @@ const { crearApertura, crearIngreso, calcularLibro } = require('../../functions/
+ const db = abrir(), mantenimiento = crearMantenimiento({db,FieldValue});
+ const CFG = {moneda:'CLP',escala:0,zonaHoraria:'America/Santiago'};
+ const etapa = process.env.FIN_RELEASE_ETAPA ?? '3';
+-if(!['3','4'].includes(etapa)) throw Error('Etapa de prueba no admitida.');
++if(!['3','4','5'].includes(etapa)) throw Error('Etapa de prueba no admitida.');
+ const corrida = Date.now().toString(36), evidencia = {proyecto:'demo-fesync',entrada:'functions/index.js',etapa,escenarios:[]};
+-const out = path.resolve(__dirname, `../../docs/fin_release_${etapa}_2026-10-24/emulador.json`);
++const out = path.resolve(__dirname, `../../docs/fin_release_${etapa}_${etapa === '5' ? '2026-10-26' : '2026-10-24'}/emulador.json`);
+ let contador = 0;
+ 
+ async function usuario(nombre) {
+@@ -36,7 +36,7 @@ async function llamar(nombre, actor, data) {
+   if(body.error) throw Object.assign(Error(body.error.message), {code:body.error.status,details:body.error.details});
+   assert.ok(Object.hasOwn(body,'result'),JSON.stringify(body));return body.result;
+ }
+-async function fixture(nombre, n = 1) {
++async function fixture(nombre, n = 1, inicializar = true) {
+   const iglesiaId = `fin_release3_${corrida}_${nombre}`, b = `iglesias/${iglesiaId}`;
+   const actores = {};
+   for(const rol of ['admin','encargado','miembro','lider']) actores[rol] = await usuario(`${nombre}_${rol}`);
+@@ -74,6 +74,7 @@ async function fixture(nombre, n = 1) {
+     const batch=db.batch();documentos.slice(i,i+400).forEach(([p,d])=>batch.create(db.doc(p),d));await batch.commit();
+   }
+   const f={iglesiaId,b,...actores};
++  if (!inicializar) return f;
+   await mantenimiento.pausar(f.admin.uid,iglesiaId);const inicial=await mantenimiento.inicializar(f.admin.uid,iglesiaId);
+   assert.equal(inicial.reporte.estado,'SIN_DIFERENCIAS_OBSERVADAS');return f;
+ }
+@@ -302,7 +303,7 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+     evidencia.mil={secuencias:[1002,1003],paginados:1003,saldo:11000,conciliacion:conciliacion.estado,certificacionHistorica:false};
+     evidencia.fixturePrincipal={iglesiaId:f.iglesiaId,conciliacion:principal.estado};
+   });
+-  if(etapa === '4') {
++  if(['4','5'].includes(etapa)) {
+     await caso('Entrada normal registra 200/201 y revierte 201 como 202',async()=>{
+       const g=await fixture('frontera4',199);await gateRef(g).set(habilitacion(g));
+       const r200=await ejecutar(g,gasto(g,1)),r201=await ejecutar(g,gasto(g,10));
+@@ -321,4 +322,102 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+         corte:q.historial.corte,saldo:q.saldoTotalMinor,functionsPort:5018};
+     });
+   }
++  if(etapa === '5') {
++    await caso('Adopción existente divergente rechazada sin crear proyección', async()=>{
++      const g=await fixture('divergente5',2,false);
++      await db.doc(`${g.b}/finanzas_saldos/caja`).update({saldoMinor:999});
++      await mantenimiento.pausar(g.admin.uid,g.iglesiaId);
++      assert.equal((await mantenimiento.conciliar(g.admin.uid,g.iglesiaId)).estado,'DIVERGENCIAS');
++      await assert.rejects(mantenimiento.inicializar(g.admin.uid,g.iglesiaId),e=>e.codigo==='CONCILIACION_REQUERIDA');
++      assert.equal((await db.doc(`${g.b}/finanzas_control/incremental_v1`).get()).exists,false);
++      assert.equal((await gateRef(g).get()).exists,false);
++      evidencia.adopcionDivergente={rechazada:true,proyeccionCreada:false,gateCreado:false};
++    });
++    await caso('Iglesia nueva: proyección vacía verificada, apertura única y no reinicialización', async()=>{
++      const g=await fixture('nueva5',0);
++      await fallo(query(g),'FAILED_PRECONDITION','CIRCUITO_FINANCIERO_NO_HABILITADO');
++      await gateRef(g).set(habilitacion(g));
++      assert.equal((await query(g)).saldoTotalMinor,0);
++      const apertura=solicitud(g,'apertura',{cuentaId:'caja',montoMinor:100,fechaContable:'2026-10-26'});
++      const r=await ejecutar(g,apertura);assert.equal(r.secuencia,1);
++      assert.equal((await ejecutar(g,apertura)).historica,true);
++      await fallo(ejecutar(g,solicitud(g,'apertura',apertura.campos)),'FAILED_PRECONDITION','APERTURA_DUPLICADA');
++      await mantenimiento.pausar(g.admin.uid,g.iglesiaId);
++      await assert.rejects(mantenimiento.inicializar(g.admin.uid,g.iglesiaId),e=>e.codigo==='NO_REINICIALIZAR_PROYECCIONES');
++      const reporte=await mantenimiento.conciliar(g.admin.uid,g.iglesiaId);
++      assert.equal(reporte.estado,'SIN_DIFERENCIAS_OBSERVADAS');
++      evidencia.nueva={corteInicial:0,corteFinal:1,conciliacion:reporte.estado,certificacionHistorica:false};
++    });
++    await caso('Habilitar, perder respuesta, deshabilitar y recuperar con nueva instancia HTTP', async()=>{
++      const g=await fixture('recuperacion5');await gateRef(g).set(habilitacion(g));
++      const s=gasto(g,13), response=await http('finanzasV1Ejecutar',g.admin,s);
++      assert.equal(response.status,200);await response.body.cancel();
++      const reciboRef=db.doc(`operaciones_financieras/${g.admin.uid}/solicitudes/${s.solicitudId}`);
++      const recibo=(await reciboRef.get()).data(), corte=(await query(g)).historial.corte;
++      await gateRef(g).update({habilitado:false});
++      await fallo(query(g),'FAILED_PRECONDITION','CIRCUITO_FINANCIERO_NO_HABILITADO');
++      await fallo(ejecutar(g,s),'FAILED_PRECONDITION','CIRCUITO_FINANCIERO_NO_HABILITADO');
++      await gateRef(g).update({habilitado:true});
++      const recuperada=await ejecutar(g,JSON.parse(JSON.stringify(s)));
++      assert.equal(recuperada.historica,true);assert.equal(recuperada.secuencia,corte);
++      assert.deepEqual((await reciboRef.get()).data(),recibo);
++      assert.equal((await query(g)).historial.corte,corte);
++      evidencia.cicloHabilitacion={respuestaDescartada:true,replayBloqueadoDurantePausa:true,reciboIntacto:true,corte};
++    });
++    await caso('Continuidad octubre a noviembre: saldos, resumen anterior, replay y reversión', async()=>{
++      const g=await fixture('mes5');await gateRef(g).set(habilitacion(g));
++      const s=gasto(g,15),confirmada=await ejecutar(g,s);
++      const cerrado=(await db.doc(`${g.b}/finanzas_resumenes/2026-10`).get()).data();
++      const nueva=solicitud(g,'gasto',{...s.campos,fechaContable:'2026-11-01'});
++      await fallo(ejecutar(g,nueva),'FAILED_PRECONDITION');
++      await mantenimiento.cambiarPeriodo(g.admin.uid,g.iglesiaId,'2026-11');
++      const q=await query(g);assert.equal(q.periodoId,'2026-11');assert.equal(q.saldoTotalMinor,9985);
++      assert.equal(q.resumen.saldoInicialMinor,9985);
++      assert.equal((await ejecutar(g,s)).historica,true);
++      await fallo(ejecutar(g,gasto(g,1)),'FAILED_PRECONDITION');
++      // El intento anterior capturó precondiciones del mes viejo: no se recicla.
++      await fallo(ejecutar(g,nueva),'FAILED_PRECONDITION','CONTEXTO_OPERACION_MODIFICADO');
++      await ejecutar(g,solicitud(g,'gasto',nueva.campos));
++      await ejecutar(g,solicitud(g,'reversion',{originalId:confirmada.movimientoId,fechaContable:'2026-11-01',motivo:'Ensayo',referenciaAuditoria:'release5'}));
++      assert.deepEqual((await db.doc(`${g.b}/finanzas_resumenes/2026-10`).get()).data(),cerrado);
++      await mantenimiento.pausar(g.admin.uid,g.iglesiaId);
++      const reporte=await mantenimiento.conciliar(g.admin.uid,g.iglesiaId);
++      assert.equal(reporte.estado,'SIN_DIFERENCIAS_OBSERVADAS');
++      evidencia.continuidad={anterior:'2026-10',nuevo:'2026-11',saldoInicial:9985,saldoFinal:9985,
++        replayAnterior:true,resumenAnteriorIntacto:true,conciliacion:reporte.estado};
++    });
++    await caso('Reglas actuales: evidencia de lectura directa de privados y auditoría con gate apagado', async()=>{
++      const g=await fixture('privacidad5');
++      async function leer(ruta) {
++        const r=await fetch(`http://127.0.0.1:8088/v1/projects/demo-fesync/databases/(default)/documents/${g.b}/${ruta}`,{
++          headers:{Authorization:`Bearer ${g.encargado.token}`},signal:AbortSignal.timeout(15000)});
++        return {status:r.status,body:await r.json()};
++      }
++      assert.equal((await gateRef(g).get()).exists,false);
++      const mov=await leer('finanzas_movimientos/apertura');assert.equal(mov.status,200);
++      assert.ok(JSON.stringify(mov.body).includes('NO_PUBLICAR_APORTANTE'));
++      const audit=await leer('finanzas_auditoria/inicio_incremental_v1_1');assert.equal(audit.status,200);
++      evidencia.bloqueoPrivacidad={gateAusente:true,encargadoLeePrivadoDirectamente:mov.status,
++        encargadoLeeAuditoriaDirectamente:audit.status,reglasModificadas:false};
++    });
++    await caso('Intención sin commit al cambiar mes queda preservada y exige resolución operativa', async()=>{
++      const g=await fixture('pendienteMes5');await gateRef(g).set(habilitacion(g));
++      let interrumpir=true;
++      const conexion={doc:db.doc.bind(db),collection:db.collection.bind(db),runTransaction:async(...args)=>{
++        const r=await db.runTransaction(...args);
++        if(interrumpir&&r?.operacion==='gasto'&&r?.auth){interrumpir=false;throw Error('Cierre antes de escritura');}return r;
++      }};
++      const s=gasto(g,7),api=crearApiPublicacion({db:conexion,FieldValue,HttpsError});
++      await assert.rejects(api.ejecutar({auth:{uid:g.admin.uid},data:s}),e=>e.code==='unavailable');
++      const intentRef=db.doc(`finanzas_mvp_solicitudes/${g.admin.uid}/solicitudes/${s.solicitudId}`);
++      const intent=(await intentRef.get()).data();assert.ok(intent);
++      await mantenimiento.cambiarPeriodo(g.admin.uid,g.iglesiaId,'2026-11');
++      await fallo(ejecutar(g,s),'FAILED_PRECONDITION');
++      assert.deepEqual((await intentRef.get()).data(),intent);
++      assert.equal((await db.doc(`operaciones_financieras/${g.admin.uid}/solicitudes/${s.solicitudId}`).get()).exists,false);
++      assert.equal((await query(g)).historial.corte,1);
++      evidencia.pendienteCruzandoMes={intencionPreservada:true,reciboExiste:false,nuevoMovimiento:false,
++        recuperacionAutomatica:false,resolucionOperativaRequerida:true};
++    });
++  }
+ });

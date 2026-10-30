@@ -329,32 +329,11 @@ function tokenDebeEliminarse(errorCode) {
   );
 }
 
-async function limpiarTokenInvalido(
-  destino,
-) {
-  if (destino.dispositivoRef) {
-    await destino.dispositivoRef.delete();
-  }
-
-  if (destino.legacy) {
-    const snapshot =
-      await destino.usuarioRef.get();
-
-    const data =
-      snapshot.data();
-
-    if (
-      data?.fcmToken ===
-      destino.token
-    ) {
-      await destino.usuarioRef.update({
-        fcmToken:
-          FieldValue.delete(),
-        fcmTokenActualizado:
-          FieldValue.delete(),
-      });
-    }
-  }
+async function limpiarTokenInvalido(destino) {
+  // Comparar en transacción: una respuesta FCM tardía no debe borrar
+  // un token renovado durante el envío, ni en dispositivo ni en perfil legado.
+  const { limpiarTokenSiCoincide } = require('./fcm_limpieza');
+  await limpiarTokenSiCoincide(destino, { db, FieldValue });
 }
 
 /*
@@ -1236,6 +1215,88 @@ const {
   HttpsError,
 } = require('firebase-functions/v2/https');
 
+exports.consultarEstadoSolicitudIngreso = onCall(
+  async (request) => {
+    const { consultarEstadoSolicitudIngreso } = require('./idempotencia_ingreso');
+    return consultarEstadoSolicitudIngreso(request, { db, HttpsError });
+  },
+);
+
+exports.desvincularMiembroIglesia = onCall(
+  async (request) => {
+    const { desvincularMiembroIglesia } = require('./membresia');
+    return desvincularMiembroIglesia(request, { db, FieldValue, HttpsError });
+  },
+);
+
+exports.consultarEstadoSolicitudDesvinculacion = onCall(
+  async (request) => {
+    const { consultarEstadoSolicitudDesvinculacion } = require('./membresia');
+    return consultarEstadoSolicitudDesvinculacion(request, { db, HttpsError });
+  },
+);
+
+exports.recuperarContextoSolicitudDesvinculacion = onCall(
+  async (request) => {
+    const { recuperarContextoSolicitudDesvinculacion } = require('./membresia');
+    return recuperarContextoSolicitudDesvinculacion(request, { db, HttpsError });
+  },
+);
+
+exports.obtenerContextoCambioRolMiembro = onCall(
+  async (request) => {
+    const { obtenerContextoCambioRolMiembro } = require('./roles');
+    return obtenerContextoCambioRolMiembro(request, { db, HttpsError });
+  },
+);
+
+exports.actualizarRolMiembro = onCall(
+  async (request) => {
+    const { actualizarRolMiembro } = require('./roles');
+    return actualizarRolMiembro(request, { db, FieldValue, HttpsError });
+  },
+);
+
+exports.actualizarEncargadoFinanciero = onCall(
+  async (request) => {
+    const { actualizarEncargadoFinanciero } = require('./finanzas');
+    return actualizarEncargadoFinanciero(request, { db, FieldValue, HttpsError });
+  },
+);
+
+exports.actualizarEstadoModuloFinanzas = onCall(
+  async (request) => {
+    const { actualizarEstadoModuloFinanzas } = require('./finanzas');
+    return actualizarEstadoModuloFinanzas(request, { db, FieldValue, HttpsError });
+  },
+);
+
+// V1: transporte y operación autorizada; permanece deshabilitado por defecto.
+// No modifica contratos ni habilitación de los callables anteriores.
+exports.finanzasV1Consultar = onCall(
+  async (request) => {
+    const { crearApiPublicacion } = require('./finanzas_publicacion');
+    return crearApiPublicacion({ db, FieldValue, HttpsError }).consultar(request);
+  },
+);
+
+exports.finanzasV1Ejecutar = onCall(
+  async (request) => {
+    const { crearApiPublicacion } = require('./finanzas_publicacion');
+    return crearApiPublicacion({ db, FieldValue, HttpsError }).ejecutar(request);
+  },
+);
+
+exports.finanzasV1ResolverSolicitud = onCall(async (request) => {
+  const { crearResolucion } = require('./finanzas_v1/resolucion');
+  return crearResolucion({ db, FieldValue, HttpsError })(request);
+});
+
+exports.finanzasV1Mantener = onCall(async (request) => {
+  const { crearAdministracion } = require('./finanzas_v1/administracion');
+  return crearAdministracion({ db, FieldValue, HttpsError })(request);
+});
+
 /*
  * Transfiere la administración principal y ambos roles
  * de forma atómica, validando al titular dentro de la transacción.
@@ -1336,6 +1397,10 @@ exports.vincularUsuarioConCodigo = onCall(
       );
     }
 
+    if (Object.prototype.hasOwnProperty.call(request.data ?? {}, 'pertenenciaId')) {
+      throw new HttpsError('invalid-argument', 'La pertenencia se genera desde el servidor.');
+    }
+
     const codigo =
       String(
         request.data?.codigo ?? '',
@@ -1375,60 +1440,50 @@ exports.vincularUsuarioConCodigo = onCall(
         .collection('usuarios_globales')
         .doc(uid);
 
-    const usuarioSnapshot =
-      await usuarioRef.get();
-
-    if (
-      usuarioSnapshot.exists &&
-      usuarioSnapshot.data()?.iglesiaId
-    ) {
-      throw new HttpsError(
-        'failed-precondition',
-        'Tu cuenta ya pertenece a una congregación.',
-      );
-    }
-
-    const iglesiasSnapshot =
-      await db
+    const iglesiasConsulta = db
         .collection('iglesias')
         .where(
           'codigoAcceso',
           '==',
           codigo,
         )
-        .limit(1)
-        .get();
-
-    if (iglesiasSnapshot.empty) {
-      throw new HttpsError(
-        'not-found',
-        'El código ingresado no existe.',
-      );
-    }
-
-    const iglesiaDoc =
-      iglesiasSnapshot.docs[0];
-
-    const datosUsuario = {
-      email,
-      nombre:
-        nombre || 'Servidor',
-      iglesiaId:
-        iglesiaDoc.id,
-      rolGlobal:
-        'servidor',
-      fotoUrl:
-        fotoUrl || null,
-      descripcion:
-        descripcion || null,
-    };
-
-    await usuarioRef.set(
-      datosUsuario,
-      {
-        merge: true,
-      },
-    );
+        .limit(1);
+    const { generarPertenenciaId } = require('./pertenencia');
+    const { prepararIdempotenciaIngreso } = require('./idempotencia_ingreso');
+    const idempotencia = prepararIdempotenciaIngreso({
+      db, uid, datos: request.data, tipo: 'vincular', HttpsError,
+      parametros: { codigo, email, nombre, fotoUrl, descripcion },
+    });
+    // El resultado es el del intento confirmado, nunca el de uno descartado.
+    const ingreso = await db.runTransaction(async (transaction) => {
+      const usuarioSnapshot = await transaction.get(usuarioRef);
+      const resultado = await idempotencia?.leer(transaction, usuarioSnapshot);
+      if (resultado) return { resultado };
+      if (usuarioSnapshot.exists && usuarioSnapshot.data()?.iglesiaId) {
+        throw new HttpsError(
+          'failed-precondition', 'Tu cuenta ya pertenece a una congregación.',
+        );
+      }
+      const iglesiasSnapshot = await transaction.get(iglesiasConsulta);
+      if (iglesiasSnapshot.empty) {
+        throw new HttpsError('not-found', 'El código ingresado no existe.');
+      }
+      const iglesia = iglesiasSnapshot.docs[0];
+      const pertenenciaId = generarPertenenciaId();
+      transaction.set(usuarioRef, {
+        email,
+        nombre: nombre || 'Servidor',
+        iglesiaId: iglesia.id,
+        rolGlobal: 'servidor',
+        fotoUrl: fotoUrl || null,
+        descripcion: descripcion || null,
+        pertenenciaId,
+      }, { merge: true });
+      idempotencia?.registrar(transaction, { iglesiaId: iglesia.id, pertenenciaId }, FieldValue);
+      return { iglesiaDoc: iglesia };
+    });
+    if (ingreso.resultado) return ingreso.resultado;
+    const iglesiaDoc = ingreso.iglesiaDoc;
 
     // Notify only after the link has been persisted. A push failure must not
     // turn a successful link into an error that invites a client retry.
@@ -1474,6 +1529,10 @@ exports.registrarNuevaIglesiaSegura = onCall(
         'unauthenticated',
         'Debes iniciar sesión.',
       );
+    }
+
+    if (Object.prototype.hasOwnProperty.call(request.data ?? {}, 'pertenenciaId')) {
+      throw new HttpsError('invalid-argument', 'La pertenencia se genera desde el servidor.');
     }
 
     const nombreAdmin =
@@ -1528,105 +1587,99 @@ exports.registrarNuevaIglesiaSegura = onCall(
         .collection('usuarios_globales')
         .doc(uid);
 
-    const usuarioSnapshot =
-      await usuarioRef.get();
-
-    if (
-      usuarioSnapshot.exists &&
-      usuarioSnapshot.data()?.iglesiaId
-    ) {
-      throw new HttpsError(
-        'failed-precondition',
-        'Tu cuenta ya pertenece a una congregación.',
-      );
-    }
-
-    const codigoExistente =
-      await db
+    const codigoConsulta = db
         .collection('iglesias')
         .where(
           'codigoAcceso',
           '==',
           codigo,
         )
-        .limit(1)
-        .get();
-
-    if (!codigoExistente.empty) {
-      throw new HttpsError(
-        'already-exists',
-        'Ese código ya está en uso.',
-      );
-    }
+        .limit(1);
 
     const iglesiaRef =
       db
         .collection('iglesias')
         .doc();
 
-    const batch =
-      db.batch();
+    const { generarPertenenciaId } = require('./pertenencia');
+    const { prepararIdempotenciaIngreso } = require('./idempotencia_ingreso');
+    const idempotencia = prepararIdempotenciaIngreso({
+      db, uid, datos: request.data, tipo: 'crear', HttpsError,
+      parametros: { nombreAdmin, email, nombreIglesia, codigo, descripcionIglesia, fotoUrl, descripcionAdmin },
+    });
+    const resultado = await db.runTransaction(async (transaction) => {
+      const usuarioSnapshot = await transaction.get(usuarioRef);
+      const anterior = await idempotencia?.leer(transaction, usuarioSnapshot);
+      if (anterior) return anterior;
+      if (usuarioSnapshot.exists && usuarioSnapshot.data()?.iglesiaId) {
+        throw new HttpsError(
+          'failed-precondition', 'Tu cuenta ya pertenece a una congregación.',
+        );
+      }
+      const codigoExistente = await transaction.get(codigoConsulta);
+      if (!codigoExistente.empty) {
+        throw new HttpsError('already-exists', 'Ese código ya está en uso.');
+      }
+      const pertenenciaId = generarPertenenciaId();
 
-    batch.set(
-      iglesiaRef,
-      {
-        nombre:
-          nombreIglesia,
-        descripcion:
-          descripcionIglesia,
-        codigoAcceso:
-          codigo,
-        adminUid:
-          uid,
-        logoUrl:
-          '',
-        modulosActivos: {
-          servidores:
-            true,
-          adoraLive:
-            true,
-          agenda:
-            true,
-          escuela:
-            false,
-          comunidades:
-            false,
-          capacitaciones:
-            true,
+      transaction.create(
+        iglesiaRef,
+        {
+          nombre:
+            nombreIglesia,
+          descripcion:
+            descripcionIglesia,
+          codigoAcceso:
+            codigo,
+          adminUid:
+            uid,
+          logoUrl:
+            '',
+          modulosActivos: {
+            servidores:
+              true,
+            adoraLive:
+              true,
+            agenda:
+              true,
+            escuela:
+              false,
+            comunidades:
+              false,
+            capacitaciones:
+              true,
+          },
+          fechaCreacion:
+            FieldValue.serverTimestamp(),
         },
-        fechaCreacion:
-          FieldValue.serverTimestamp(),
-      },
-    );
+      );
 
-    batch.set(
-      usuarioRef,
-      {
-        email,
-        nombre:
-          nombreAdmin ||
-          'Pastor / Administrador',
-        iglesiaId:
-          iglesiaRef.id,
-        rolGlobal:
-          'admin_iglesia',
-        fotoUrl:
-          fotoUrl || null,
-        descripcion:
-          descripcionAdmin || null,
-      },
-      {
-        merge: true,
-      },
-    );
+      transaction.set(
+        usuarioRef,
+        {
+          email,
+          nombre:
+            nombreAdmin ||
+            'Pastor / Administrador',
+          iglesiaId:
+            iglesiaRef.id,
+          rolGlobal:
+            'admin_iglesia',
+          pertenenciaId,
+          fotoUrl:
+            fotoUrl || null,
+          descripcion:
+            descripcionAdmin || null,
+        },
+        {
+          merge: true,
+        },
+      );
+      idempotencia?.registrar(transaction, { iglesiaId: iglesiaRef.id, pertenenciaId }, FieldValue);
+      return { ok: true, iglesiaId: iglesiaRef.id };
+    });
 
-    await batch.commit();
-
-    return {
-      ok: true,
-      iglesiaId:
-        iglesiaRef.id,
-    };
+    return resultado;
   },
 );
 /*

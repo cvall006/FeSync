@@ -1,0 +1,16 @@
+{
+  "versionEsquema": 1,
+  "actual": "admin-2",
+  "acreditados": {
+    "admin-2": {
+      "archivo": "runtime_2.json",
+      "sha256": "c4d3279e32bacb8514f54f076614dfe0d7505238e85f6b2789c5de4dc807e1a4"
+    }
+  },
+  "pendientes": [
+    {
+      "ruta": "finanzas_core/adaptador_firestore_v2.js",
+      "estado": "pendiente"
+    }
+  ]
+}

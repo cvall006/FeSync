@@ -56,7 +56,9 @@ class NotificationService {
       (defaultTargetPlatform == TargetPlatform.iOS ||
           defaultTargetPlatform == TargetPlatform.macOS);
 
-  bool get _soportaFcm => kIsWeb || _esAndroid || _esApple;
+  bool get _soportaFcm =>
+      !const bool.fromEnvironment('FESYNC_FINANZAS_DEMO') &&
+      (kIsWeb || _esAndroid || _esApple);
 
   String get _plataforma {
     if (kIsWeb) {

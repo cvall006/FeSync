@@ -1,0 +1,38 @@
+[
+  [
+    "const { verificarFuentes } = require('./fuentes');",
+    "const { obtenerContextoFuentes } = require('./fuentes');"
+  ],
+  [
+    "function crearTransicionDemo({ db, env = process.env, custodia }) {",
+    "function crearTransicionDemo({ db, env = process.env, custodia, inventarioId }) {"
+  ],
+  [
+    "  const huellaSoftware = verificarFuentes();",
+    "  const fuentes = obtenerContextoFuentes(inventarioId);\n  const huellaSoftware = fuentes.huellaSoftware;"
+  ],
+  [
+    "e.data().operador === p.operador && e.data().huellaSoftware === huellaSoftware && g.exists, 'DEMO_FENCING'); return resumen(e.data());",
+    "e.data().operador === p.operador && g.exists, 'DEMO_FENCING');\n        fuentes.comprobarEjecucion(e.data(), g.data(), p);\n        return resumen(e.data());"
+  ],
+  [
+    "const eNueva = { versionEsquema: 1, versionProcedimiento: 1, huellaSoftware,",
+    "const eNueva = { versionEsquema: 1, ...fuentes.metadatos, versionProcedimiento: 1, huellaSoftware,"
+  ],
+  [
+    "tx.create(r.generacion, { versionEsquema: 2, versionProcedimiento: 1, huellaSoftware,",
+    "tx.create(r.generacion, { versionEsquema: 2, ...fuentes.metadatos, versionProcedimiento: 1, huellaSoftware,"
+  ],
+  [
+    "c.fence === e.fence && e.huellaSoftware === huellaSoftware &&",
+    "c.fence === e.fence &&"
+  ],
+  [
+    "generacion.data().huellaSoftware === huellaSoftware && generacion.data().versionProcedimiento === 1 &&",
+    "generacion.data().versionProcedimiento === 1 &&"
+  ],
+  [
+    "      if (e.fence === fenceEsperado + 1 && e.ultimoPaso === fenceEsperado) return resumen(e);",
+    "      fuentes.comprobarEjecucion(e, generacion.data(), p);\n      if (e.fence === fenceEsperado + 1 && e.ultimoPaso === fenceEsperado) return resumen(e);"
+  ]
+]

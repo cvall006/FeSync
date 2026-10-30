@@ -1,0 +1,417 @@
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\functions\\finanzas_publicacion.js" b/functions/finanzas_publicacion.js
+index ba62fab..3440383 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\functions\\finanzas_publicacion.js"
++++ b/functions/finanzas_publicacion.js
+@@ -1,7 +1,7 @@
+ 'use strict';
+ 
+ // Conexión de la entrada normal al MISMO backend de FIN-RELEASE-2.
+-// No habilita ejecución fuera de demo-fesync ni exporta mantenimiento/fixtures.
++// Selección de entorno explícita; no exporta mantenimiento ni fixtures.
+ const { exigir, registroExacto } = require('./finanzas_core/dinero');
+ const { validarConfiguracionContable, exigirPeriodoContableAbierto } = require('./finanzas_core/configuracion');
+ const { crearApiIncremental } = require('./finanzas_v1/api');
+@@ -20,8 +20,8 @@ function crearApiPublicacion({ db, FieldValue, HttpsError }) {
+   async function atender(nombre, request) {
+     if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicia sesión.');
+     // Antes de cualquier acceso a Firestore. Ni flags del cliente ni un documento
+-    // habilitado pueden quitar esta barrera de entorno durante FIN-RELEASE-3.
+-    try { c.entorno(); } catch {
++    // habilitado pueden quitar esta barrera de entorno de servidor.
++    try { c.entornoOperacion(); } catch {
+       throw new HttpsError('failed-precondition', 'ENTORNO_FINANCIERO_NO_HABILITADO');
+     }
+     try {
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\functions\\finanzas_v1\\adaptador.js" b/functions/finanzas_v1/adaptador.js
+index 315871b..2547534 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\functions\\finanzas_v1\\adaptador.js"
++++ b/functions/finanzas_v1/adaptador.js
+@@ -32,7 +32,7 @@ function crearAdaptadorIncremental({ db, FieldValue }) {
+     if (['crearCuenta', 'crearCategoria'].includes(entrada.operacion)) {
+       return require('./catalogos').ejecutarCatalogo({ db, FieldValue, entrada });
+     }
+-    c.entorno(); const e = preparar(entrada), s = e.solicitud, b = c.base(s.iglesiaId), op = e.operacion;
++    c.entornoOperacion(); const e = preparar(entrada), s = e.solicitud, b = c.base(s.iglesiaId), op = e.operacion;
+     const ref = x => db.doc(`${b}/${x}`), reciboRef = db.doc(`operaciones_financieras/${e.uid}/solicitudes/${s.solicitudId}`);
+     try { return await db.runTransaction(async tx => {
+       const recibo = await tx.get(reciboRef);
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\functions\\finanzas_v1\\api.js" b/functions/finanzas_v1/api.js
+index 8166fb8..311bafd 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\functions\\finanzas_v1\\api.js"
++++ b/functions/finanzas_v1/api.js
+@@ -14,7 +14,7 @@ function crearApiIncremental({ db, FieldValue, HttpsError }) {
+   const adaptador = crearAdaptadorIncremental({ db, FieldValue });
+   const api = crearSolicitudes({ db, HttpsError, adaptador });
+   async function consultar(request) {
+-    c.entorno();
++    c.entornoOperacion();
+     if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicia sesión.');
+     try {
+       const uid = request.auth.uid, data = request.data; registroExacto(data, [], ['contexto', 'limite', 'cursor', 'historialPaginado']);
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\functions\\finanzas_v1\\catalogos.js" b/functions/finanzas_v1/catalogos.js
+index 274f618..22560a8 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\functions\\finanzas_v1\\catalogos.js"
++++ b/functions/finanzas_v1/catalogos.js
+@@ -7,7 +7,7 @@ const { crearSaldoInicial } = require('../finanzas_core/proyecciones');
+ const { exigirPeriodoContableAbierto, validarConfiguracionContable } = require('../finanzas_core/configuracion');
+ const c = require('./comun');
+ async function ejecutarCatalogo({ db, FieldValue, entrada }) {
+-  c.entorno(); registroExacto(entrada, ['auth', 'operacion', 'solicitud']); registroExacto(entrada.auth, ['uid']);
++  c.entornoOperacion(); registroExacto(entrada, ['auth', 'operacion', 'solicitud']); registroExacto(entrada.auth, ['uid']);
+   const esCuenta = entrada.operacion === 'crearCuenta', campo = esCuenta ? 'cuenta' : 'categoria';
+   const copia = JSON.parse(c.canon({ uid: entrada.auth.uid, operacion: entrada.operacion, solicitud: entrada.solicitud }));
+   const s = copia.solicitud; c.id(copia.uid); c.base(s.iglesiaId);
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\functions\\finanzas_v1\\comun.js" b/functions/finanzas_v1/comun.js
+index 3e95ed0..aa28104 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\functions\\finanzas_v1\\comun.js"
++++ b/functions/finanzas_v1/comun.js
+@@ -2,7 +2,7 @@
+ const { createHash } = require('node:crypto');
+ const { exigir, registroExacto } = require('../finanzas_core/dinero');
+ const { exigirPermisoContable } = require('../finanzas_core/autorizacion');
+-const { entorno } = require('./entorno');
++const { entorno, entornoOperacion } = require('./entorno');
+ const canon = v => v === null || typeof v !== 'object' ? JSON.stringify(v) : Array.isArray(v) ?
+   `[${v.map(canon).join(',')}]` : `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}`;
+ const hash = v => createHash('sha256').update(canon(v)).digest('hex');
+@@ -54,4 +54,4 @@ function resumen(v) {
+     saldoInicialPorCuenta: Object.fromEntries(Object.values(v.cuentas).map(c => [c.cuentaId, c.saldoInicialPeriodoMinor])),
+     saldoFinalPorCuenta: Object.fromEntries(Object.values(v.cuentas).map(c => [c.cuentaId, c.saldoFinalPeriodoMinor])) };
+ }
+-module.exports = { entorno, canon, hash, ver, id, base, configDinero, protocolo, autorizar, sellar, verificar, resumen };
++module.exports = { entorno, entornoOperacion, canon, hash, ver, id, base, configDinero, protocolo, autorizar, sellar, verificar, resumen };
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\functions\\finanzas_v1\\entorno.js" b/functions/finanzas_v1/entorno.js
+index 593225f..da9c2e6 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\functions\\finanzas_v1\\entorno.js"
++++ b/functions/finanzas_v1/entorno.js
+@@ -7,4 +7,26 @@ function entorno(env = process.env) {
+       env.FIREBASE_AUTH_EMULATOR_HOST !== '127.0.0.1:9098' || env.FUNCTIONS_EMULATOR !== 'true' ||
+       env.GOOGLE_APPLICATION_CREDENTIALS || env.FIREBASE_TOKEN || env.GOOGLE_OAUTH_ACCESS_TOKEN) throw Error('SOLO_EMULADOR_DEMO');
+ }
+-module.exports = { entorno };
++// Solo las operaciones usan esta selección. Mantenimiento conserva entorno().
++function entornoOperacion(env = process.env) {
++  const modo = env.FINANZAS_V1_ENTORNO;
++  if (modo === undefined || modo === 'emulador') return entorno(env);
++  if (modo !== 'publicable' || env.FINANZAS_V1_SERVIDOR_HABILITADO !== 'true') {
++    throw Error('FINANZAS_SERVIDOR_DESHABILITADO');
++  }
++  const proyecto = env.FINANZAS_V1_PROYECTO;
++  if (typeof proyecto !== 'string' || !/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(proyecto) ||
++      proyecto.startsWith('demo-') || env.GCLOUD_PROJECT !== proyecto ||
++      (env.GOOGLE_CLOUD_PROJECT !== undefined && env.GOOGLE_CLOUD_PROJECT !== proyecto) ||
++      ['FUNCTIONS_EMULATOR', 'FIRESTORE_EMULATOR_HOST', 'FIREBASE_AUTH_EMULATOR_HOST',
++        'FIREBASE_DATABASE_EMULATOR_HOST', 'FIREBASE_STORAGE_EMULATOR_HOST',
++        'FIREBASE_EMULATOR_HUB', 'STORAGE_EMULATOR_HOST', 'PUBSUB_EMULATOR_HOST',
++        'GOOGLE_APPLICATION_CREDENTIALS', 'FIREBASE_TOKEN', 'GOOGLE_OAUTH_ACCESS_TOKEN']
++        .some(k => env[k] !== undefined)) throw Error('ENTORNO_FINANCIERO_INCOHERENTE');
++  if (env.FIREBASE_CONFIG !== undefined) {
++    let config;
++    try { config = JSON.parse(env.FIREBASE_CONFIG); } catch { throw Error('CONFIG_FIREBASE_INCOHERENTE'); }
++    if (config?.projectId !== proyecto) throw Error('CONFIG_FIREBASE_INCOHERENTE');
++  }
++}
++module.exports = { entorno, entornoOperacion };
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\functions\\finanzas_v1\\solicitudes.js" b/functions/finanzas_v1/solicitudes.js
+index ec7621c..f855b6c 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\functions\\finanzas_v1\\solicitudes.js"
++++ b/functions/finanzas_v1/solicitudes.js
+@@ -4,7 +4,7 @@ const { LIMITES } = require('../finanzas_core/adaptador_firestore');
+ const { exigirPermisoContable } = require('../finanzas_core/autorizacion');
+ const { exigir, registroExacto, ErrorContable } = require('../finanzas_core/dinero');
+ const { createHash } = require('node:crypto');
+-const { entorno } = require('./entorno');
++const { entornoOperacion } = require('./entorno');
+ const version = s => { exigir(s.exists && s.updateTime, 'CONFIGURACION_REQUERIDA'); return `${s.updateTime.seconds}:${s.updateTime.nanoseconds}`; };
+ const id = v => exigir(typeof v === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(v), 'ID_INVALIDO');
+ function canon(v) { return v && typeof v === 'object' ? Array.isArray(v) ? `[${v.map(canon).join(',')}]` :
+@@ -74,7 +74,7 @@ function crearSolicitudes({ db, HttpsError, adaptador }) {
+     return adapter.ejecutar(entrada);
+   }
+   function callable(fn) { return async request => {
+-    entorno();
++    entornoOperacion();
+     if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicia sesión.');
+     try { id(request.auth.uid); return await fn(request.auth.uid, request.data); }
+     catch (e) {
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\lib\\core\\services\\firebase_emulator_bootstrap.dart" b/lib/core/services/firebase_emulator_bootstrap.dart
+index 69fe15d..758fc53 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\lib\\core\\services\\firebase_emulator_bootstrap.dart"
++++ b/lib/core/services/firebase_emulator_bootstrap.dart
+@@ -13,7 +13,15 @@ void validarSeleccionFirebase({
+   bool emuladores = finanzasEmuladores,
+   bool debug = kDebugMode,
+   String host = const String.fromEnvironment('FESYNC_EMULATOR_HOST'),
++  String transporte = const String.fromEnvironment(
++    'FESYNC_FINANZAS_TRANSPORTE',
++  ),
+ }) {
++  if ((transporte == 'emulador' && !emuladores) ||
++      (transporte == 'publicable' && (emuladores || debug)) ||
++      !['', 'deshabilitado', 'emulador', 'publicable'].contains(transporte)) {
++    throw StateError('Selección de transporte financiero incoherente.');
++  }
+   if (!emuladores && host.isNotEmpty) {
+     throw StateError(
+       'FESYNC_EMULATOR_HOST requiere FESYNC_FINANZAS_DEMO=true.',
+@@ -74,7 +82,7 @@ Future<void> inicializarFirebaseEmuladores() async {
+     automaticHostMapping: false,
+   );
+   FirebaseFunctions.instanceFor(region: 'southamerica-west1')
+-      .useFunctionsEmulator(host, 5008, automaticHostMapping: false);
++      .useFunctionsEmulator(host, 5018, automaticHostMapping: false);
+   // Storage no forma parte de esta fixture: falla localmente si otro módulo
+   // intenta subir un archivo, sin recurrir al bucket de producción.
+   await FirebaseStorage.instance.useStorageEmulator(
+@@ -84,6 +92,6 @@ Future<void> inicializarFirebaseEmuladores() async {
+   );
+   debugPrint(
+     'FeSync: demo-fesync; Auth $host:9098; Firestore $host:8088; '
+-    'Functions $host:5008; Storage $host:9198 (sin servicio); FCM desactivado.',
++    'Functions $host:5018; Storage $host:9198 (sin servicio); FCM desactivado.',
+   );
+ }
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\lib\\modules\\finanzas\\finanzas_mvp_screen.dart" b/lib/modules/finanzas/finanzas_mvp_screen.dart
+index 6c085a6..59e5109 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\lib\\modules\\finanzas\\finanzas_mvp_screen.dart"
++++ b/lib/modules/finanzas/finanzas_mvp_screen.dart
+@@ -6,8 +6,9 @@ import 'package:flutter/material.dart';
+ import 'package:firebase_auth/firebase_auth.dart';
+ 
+ import 'finanzas_mvp_service.dart';
++import '../../core/services/firebase_emulator_bootstrap.dart';
+ 
+-/// Presentación de la API demo. Los permisos efectivos se vuelven a comprobar
++/// Presentación de la API financiera. Los permisos efectivos se vuelven a comprobar
+ /// en servidor en cada lectura/escritura, incluidos reintentos.
+ class FinanzasMvpScreen extends StatefulWidget {
+   const FinanzasMvpScreen({super.key, this.servicio});
+@@ -567,9 +568,10 @@ class _FinanzasMvpScreenState extends State<FinanzasMvpScreen> {
+                     ),
+                   ),
+                 if (d != null) ...[
+-                  const Text(
+-                    'Entorno local demo-fesync · CLP · sin datos de producción',
+-                  ),
++                  if (finanzasEmuladores)
++                    const Text(
++                      'Entorno local demo-fesync · CLP · sin datos de producción',
++                    ),
+                   if (_pendiente)
+                     Card(
+                       child: ListTile(
+@@ -591,18 +593,9 @@ class _FinanzasMvpScreenState extends State<FinanzasMvpScreen> {
+                     const Text(
+                       'Configuración inicial: CLP, pesos enteros, America/Santiago.',
+                     ),
+-                    if (_permiso('administrarConfiguracion'))
+-                      FilledButton(
+-                        onPressed: () => _accion(
+-                          () => _servicio.inicializar(
+-                            _contexto,
+-                            _hoy().substring(0, 7),
+-                          ),
+-                        ),
+-                        child: const Text(
+-                          'Configurar Finanzas de esta fixture',
+-                        ),
+-                      ),
++                    const Text(
++                      'La preparación financiera requiere un operador autorizado.',
++                    ),
+                   ] else ...[
+                     Text(
+                       'Período abierto: ${d['periodoId']} · ${d['protocolo']}',
+@@ -829,9 +822,7 @@ class _AccesoFinanzasMvpState extends State<AccesoFinanzasMvp> {
+             child: ListTile(
+               leading: const Icon(Icons.account_balance_wallet),
+               title: const Text('Finanzas'),
+-              subtitle: const Text(
+-                'Cuentas, ingresos, gastos e historial · demo',
+-              ),
++              subtitle: const Text('Cuentas, ingresos, gastos e historial'),
+               onTap: () async {
+                 await Navigator.push(
+                   context,
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\lib\\modules\\finanzas\\finanzas_mvp_service.dart" b/lib/modules/finanzas/finanzas_mvp_service.dart
+index 7e2374f..470cc62 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\lib\\modules\\finanzas\\finanzas_mvp_service.dart"
++++ b/lib/modules/finanzas/finanzas_mvp_service.dart
+@@ -3,8 +3,10 @@ import 'dart:math';
+ 
+ import 'package:cloud_functions/cloud_functions.dart';
+ import 'package:firebase_auth/firebase_auth.dart';
++import 'package:firebase_core/firebase_core.dart';
+ 
+ import '../../core/services/ingreso_pendiente_service.dart';
++import 'finanzas_transporte_config.dart';
+ 
+ typedef LlamadaFinanzas = Future<Map<String, dynamic>> Function(
+   String nombre,
+@@ -30,22 +32,37 @@ class FinanzasMvpService {
+   static Future<Map<String, dynamic>> _firebase(
+     String nombre,
+     Map<String, dynamic> datos,
+-  ) async => Map<String, dynamic>.from(
+-    (await FirebaseFunctions.instanceFor(region: 'southamerica-west1')
+-                .httpsCallable(nombre)
+-                .call<dynamic>(datos))
+-            .data
+-        as Map,
+-  );
++  ) async {
++    FinanzasTransporteConfig.actual.validar(
++      proyectoApp: Firebase.app().options.projectId,
++    );
++    final functions = FirebaseFunctions.instanceFor(
++      region: FinanzasTransporteConfig.region,
++    );
++    if (FinanzasTransporteConfig.actual.entorno == 'emulador') {
++      // El servicio tampoco puede caer al endpoint remoto si se usa sin main.
++      functions.useFunctionsEmulator(
++        FinanzasTransporteConfig.hostEmulador,
++        5018,
++        automaticHostMapping: false,
++      );
++    }
++    return Map<String, dynamic>.from(
++      (await functions.httpsCallable(nombre).call<dynamic>(datos)).data as Map,
++    );
++  }
+ 
+   String get _uid => _uidActual() ?? (throw StateError('Inicia sesión.'));
+-  String _clave(String uid) => 'finanzas-mvp-demo-pendiente-$uid';
++  String get _prefijo => FinanzasTransporteConfig.actual.entorno == 'publicable'
++      ? 'finanzas-v1-${FinanzasTransporteConfig.actual.proyecto}'
++      : 'finanzas-mvp-demo';
++  String _clave(String uid) => '$_prefijo-pendiente-$uid';
+ 
+   Future<Map<String, dynamic>> consultar() =>
+-      _llamar('finanzasMvpConsultar', {'historialPaginado': true});
++      _llamar(FinanzasTransporteConfig.consultar, {'historialPaginado': true});
+ 
+   Future<Map<String, dynamic>> consultarPagina(String cursor, int limite) =>
+-      _llamar('finanzasMvpConsultar', {
++      _llamar(FinanzasTransporteConfig.consultar, {
+         'historialPaginado': true,
+         'cursor': cursor,
+         'limite': limite,
+@@ -55,10 +72,9 @@ class FinanzasMvpService {
+     Map<String, dynamic> contexto,
+     String periodo,
+   ) async {
+-    await _llamar('finanzasMvpInicializar', {
+-      'contexto': contexto,
+-      'periodoId': periodo,
+-    });
++    throw StateError(
++      'La preparación financiera requiere un operador autorizado.',
++    );
+   }
+ 
+   Future<Map<String, dynamic>?> pendiente() async {
+@@ -117,12 +133,15 @@ class FinanzasMvpService {
+     if (_uidActual() != uid) throw StateError('La sesión cambió.');
+     // Cualquier excepción conserva la intención. Ni timeout ni falta de acceso
+     // prueban que una petición anterior no haya sido confirmada.
+-    final resultado = await _llamar('finanzasMvpEjecutar', solicitud);
++    final resultado = await _llamar(
++      FinanzasTransporteConfig.ejecutar,
++      solicitud,
++    );
+     if (resultado['estado'] != 'CONFIRMADA') {
+       throw StateError('Resultado incierto. Recupera la misma solicitud.');
+     }
+     await _almacen.escribir(
+-      'finanzas-mvp-demo-recibo-$uid-${solicitud['solicitudId']}',
++      '$_prefijo-recibo-$uid-${solicitud['solicitudId']}',
+       jsonEncode({'solicitud': solicitud, 'resultado': resultado}),
+     );
+     await _almacen.escribir(_clave(uid), '');
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\test\\finanzas_mvp_screen_test.dart" b/test/finanzas_mvp_screen_test.dart
+index b1b410f..c4abe25 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\test\\finanzas_mvp_screen_test.dart"
++++ b/test/finanzas_mvp_screen_test.dart
+@@ -135,7 +135,7 @@ void main() {
+         almacen: MemoriaFinanzas(),
+         uidActual: () => 'encargado',
+         llamar: (nombre, _) async {
+-          if (nombre != 'finanzasMvpConsultar') {
++          if (nombre != 'finanzasV1Consultar') {
+             envios++;
+             return {'estado': 'CONFIRMADA'};
+           }
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\test\\finanzas_release3\\integracion.cjs" b/test/finanzas_release3/integracion.cjs
+index bd44a70..faab4ab 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\test\\finanzas_release3\\integracion.cjs"
++++ b/test/finanzas_release3/integracion.cjs
+@@ -13,9 +13,9 @@ const { crearApertura, crearIngreso, calcularLibro } = require('../../functions/
+ const db = abrir(), mantenimiento = crearMantenimiento({db,FieldValue});
+ const CFG = {moneda:'CLP',escala:0,zonaHoraria:'America/Santiago'};
+ const etapa = process.env.FIN_RELEASE_ETAPA ?? '3';
+-if(!['3','4','5','6'].includes(etapa)) throw Error('Etapa de prueba no admitida.');
++if(!['3','4','5','6','7'].includes(etapa)) throw Error('Etapa de prueba no admitida.');
+ const corrida = Date.now().toString(36), evidencia = {proyecto:'demo-fesync',entrada:'functions/index.js',etapa,escenarios:[]};
+-const out = path.resolve(__dirname, `../../docs/fin_release_${etapa}_${['5','6'].includes(etapa) ? '2026-10-26' : '2026-10-24'}/emulador.json`);
++const out = path.resolve(__dirname, `../../docs/fin_release_${etapa}_${['5','6','7'].includes(etapa) ? '2026-10-26' : '2026-10-24'}/emulador.json`);
+ let contador = 0;
+ 
+ async function usuario(nombre) {
+@@ -303,7 +303,7 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+     evidencia.mil={secuencias:[1002,1003],paginados:1003,saldo:11000,conciliacion:conciliacion.estado,certificacionHistorica:false};
+     evidencia.fixturePrincipal={iglesiaId:f.iglesiaId,conciliacion:principal.estado};
+   });
+-  if(['4','5','6'].includes(etapa)) {
++  if(['4','5','6','7'].includes(etapa)) {
+     await caso('Entrada normal registra 200/201 y revierte 201 como 202',async()=>{
+       const g=await fixture('frontera4',199);await gateRef(g).set(habilitacion(g));
+       const r200=await ejecutar(g,gasto(g,1)),r201=await ejecutar(g,gasto(g,10));
+@@ -322,7 +322,7 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+         corte:q.historial.corte,saldo:q.saldoTotalMinor,functionsPort:5018};
+     });
+   }
+-  if(['5','6'].includes(etapa)) {
++  if(['5','6','7'].includes(etapa)) {
+     await caso('Adopción existente divergente rechazada sin crear proyección', async()=>{
+       const g=await fixture('divergente5',2,false);
+       await db.doc(`${g.b}/finanzas_saldos/caja`).update({saldoMinor:999});
+@@ -386,7 +386,7 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+       evidencia.continuidad={anterior:'2026-10',nuevo:'2026-11',saldoInicial:9985,saldoFinal:9985,
+         replayAnterior:true,resumenAnteriorIntacto:true,conciliacion:reporte.estado};
+     });
+-    await caso(etapa==='6'?'Reglas corregidas: libro, auditoría y recibos privados inaccesibles directamente':
++    await caso(['6','7'].includes(etapa)?'Reglas corregidas: libro, auditoría y recibos privados inaccesibles directamente':
+       'Reglas actuales: evidencia de lectura directa de privados y auditoría con gate apagado', async()=>{
+       const g=await fixture('privacidad5');
+       async function leer(ruta,absoluta=false) {
+@@ -396,8 +396,8 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+       }
+       assert.equal((await gateRef(g).get()).exists,false);
+       const mov=await leer('finanzas_movimientos/apertura'),audit=await leer('finanzas_auditoria/inicio_incremental_v1_1');
+-      assert.equal(mov.status,etapa==='6'?403:200);assert.equal(audit.status,etapa==='6'?403:200);
+-      if(etapa==='6'){
++      assert.equal(mov.status,['6','7'].includes(etapa)?403:200);assert.equal(audit.status,['6','7'].includes(etapa)?403:200);
++      if(['6','7'].includes(etapa)){
+         assert.equal(JSON.stringify(mov.body).includes('NO_PUBLICAR_APORTANTE'),false);
+         await gateRef(g).set(habilitacion(g));
+         const consulta=await query(g);assert.equal(consulta.saldoTotalMinor,10000);
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\lib\\main.dart" b/lib/main.dart
+index 4fe153e..26b20c3 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release7-backup-DZ1TjH\\files\\lib\\main.dart"
++++ b/lib/main.dart
+@@ -33,12 +33,9 @@ Future<void> main() async {
+   WidgetsFlutterBinding.ensureInitialized();
+   validarSeleccionFirebase();
+ 
+-  // El APK debug de esta etapa solo admite el proyecto ficticio de emuladores.
+-  if (!kIsWeb &&
+-      defaultTargetPlatform == TargetPlatform.android &&
+-      kDebugMode &&
+-      !finanzasEmuladores) {
+-    throw StateError('Android debug requiere FESYNC_FINANZAS_DEMO=true.');
++  // Desarrollo en cualquier plataforma: nunca seleccionar Firebase real.
++  if (kDebugMode && !finanzasEmuladores) {
++    throw StateError('Debug requiere FESYNC_FINANZAS_DEMO=true.');
+   }
+   if (finanzasEmuladores) {
+     await inicializarFirebaseEmuladores();

@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/models/app_models.dart';
 import 'escuela_evaluaciones_screen.dart';
 import 'escuela_models.dart';
+import 'escuela_asignaciones_screen.dart';
 
 class EscuelaScreen extends StatefulWidget {
   final UsuarioModel usuario;
@@ -447,7 +448,22 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
     final searchBackground = oscuro ? const Color(0xFF11151A) : Colors.white;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Escuela Bíblica')),
+      appBar: AppBar(
+        title: const Text('Escuela Bíblica'),
+        actions: [
+          IconButton(
+            tooltip: 'Asignaciones e historial',
+            icon: const Icon(Icons.assignment_ind),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    EscuelaAsignacionesScreen(usuario: widget.usuario),
+              ),
+            ),
+          ),
+        ],
+      ),
       floatingActionButton: _esAdmin
           ? FloatingActionButton.extended(
               backgroundColor: const Color(0xFFF59E0B),

@@ -8,6 +8,7 @@ function escenario(opciones = {}) {
   const enviados = [];
   const secuencia = [];
   const limpiados = [];
+  const recibos = new Map();
   let vinculado = false;
   const usuarios = {
     nuevo: opciones.yaVinculado ? { iglesiaId: 'iglesia' } : {},
@@ -29,14 +30,42 @@ function escenario(opciones = {}) {
         assert.equal(campo, 'activo'); assert.equal(operador, '=='); assert.equal(activo, true);
         return { async get() {
           return { docs: uid === 'admin' ? [
-            { data: () => ({ token: 'device' }), ref: { async delete() { limpiados.push('device'); } } },
+            { data: () => ({ token: 'device' }), ref: { async get() { return { exists: true, data: () => ({ token: 'device' }) }; }, async delete() { limpiados.push('device'); } } },
             { data: () => ({ token: 'legacy' }), ref: { async delete() {} } },
           ] : [] };
         } };
       } };
     },
   });
-  const db = { collection(nombre) {
+  const db = {
+    async runTransaction(callback) {
+      const pendientes = [];
+      const resultado = await callback({
+        async get(ref) {
+          assert.equal(pendientes.length, 0, 'Lecturas antes de escrituras');
+          return ref.get();
+        },
+        set(ref, datos) { pendientes.push(() => ref.set(datos)); },
+        create(ref, datos) { pendientes.push(() => ref.set(datos)); },
+        delete(ref) { pendientes.push(() => ref.delete()); },
+        update(ref, datos) { pendientes.push(() => ref.update(datos)); },
+      });
+      for (const aplicar of pendientes) await aplicar();
+      return resultado;
+    },
+    collection(nombre) {
+    if (nombre === 'operaciones_ingreso') return { doc(uid) {
+      return { collection(subcoleccion) {
+        assert.equal(subcoleccion, 'solicitudes');
+        return { doc(solicitudId) {
+          const clave = `${uid}/${solicitudId}`;
+          return {
+            async get() { return { exists: recibos.has(clave), data: () => recibos.get(clave) }; },
+            async set(datos) { assert.equal(recibos.has(clave), false); recibos.set(clave, datos); },
+          };
+        } };
+      } };
+    } };
     if (nombre === 'usuarios_globales') return { doc: usuarioRef };
     assert.equal(nombre, 'iglesias');
     return { where(campo, operador, codigo) {
@@ -49,6 +78,9 @@ function escenario(opciones = {}) {
   } };
   class HttpsError extends Error { constructor(code, message) { super(message); this.code = code; } }
   const imports = {
+    './idempotencia_ingreso': require('../idempotencia_ingreso'),
+    './fcm_limpieza': require('../fcm_limpieza'),
+    './pertenencia': require('../pertenencia'),
     'firebase-functions/v2/firestore': { onDocumentCreated: (...args) => args.at(-1), onDocumentUpdated: (...args) => args.at(-1) },
     'firebase-functions/v2': { setGlobalOptions() {} },
     'firebase-functions/v2/https': { onCall: (handler) => handler, HttpsError },
@@ -108,4 +140,14 @@ test('Reingreso luego de salir puede notificar nuevamente', async () => {
   const s = escenario(); await s.ejecutar({ nombre: 'Reingreso' });
   s.salir(); await s.ejecutar({ nombre: 'Reingreso' });
   assert.equal(s.enviados.length, 2);
+});
+
+test('Vinculación identificada repetida no vuelve a notificar ni guarda otro ingreso', async () => {
+  const s = escenario();
+  const datos = { solicitudId: 'solicitud_notificacion_01', nombre: 'Ana' };
+  assert.deepEqual(structuredClone(await s.ejecutar(datos)), structuredClone(await s.ejecutar(datos)));
+  assert.deepEqual(s.secuencia, ['guardar', 'notificar']);
+  s.salir();
+  await assert.rejects(s.ejecutar(datos), { code: 'failed-precondition' });
+  assert.equal(s.enviados.length, 1);
 });

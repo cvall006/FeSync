@@ -6,15 +6,79 @@ import 'package:flutter/foundation.dart'
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../models/app_models.dart';
+import '../models/resultado_ingreso.dart';
+import 'coordinador_ingreso.dart';
+import 'ingreso_pendiente_service.dart';
 
 class AuthService {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  AuthService({
+    FirebaseAuth? auth,
+    FirebaseFirestore? firestore,
+    FirebaseFunctions? functions,
+    CoordinadorIngreso? coordinador,
+  }) : _authOverride = auth,
+       _firestoreOverride = firestore,
+       _functionsOverride = functions,
+       _coordinadorOverride = coordinador;
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth? _authOverride;
+  final FirebaseFirestore? _firestoreOverride;
+  final FirebaseFunctions? _functionsOverride;
+  final CoordinadorIngreso? _coordinadorOverride;
+  FirebaseAuth get _auth => _authOverride ?? FirebaseAuth.instance;
 
-  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
-    region: 'southamerica-west1',
-  );
+  FirebaseFirestore get _firestore =>
+      _firestoreOverride ?? FirebaseFirestore.instance;
+
+  FirebaseFunctions get _functions =>
+      _functionsOverride ??
+      FirebaseFunctions.instanceFor(region: 'southamerica-west1');
+
+  late final CoordinadorIngreso ingreso =
+      _coordinadorOverride ??
+      CoordinadorIngreso(
+        uidActual: () => currentUser?.uid,
+        leerPerfilServidor: leerPerfilServidor,
+        llamar: (nombre, datos) async =>
+            (await _functions.httpsCallable(nombre).call<Object?>(datos)).data,
+      );
+
+  Future<Map<String, dynamic>?> leerPerfilServidor(String uid) async =>
+      (await _firestore
+              .collection('usuarios_globales')
+              .doc(uid)
+              .get(const GetOptions(source: Source.server)))
+          .data();
+
+  Future<void> salirCongregacionLegacy({
+    required String uid,
+    required String iglesiaId,
+  }) async {
+    if (currentUser?.uid != uid || iglesiaId.isEmpty) {
+      throw StateError('La sesión o la iglesia cambiaron.');
+    }
+    final ref = _firestore.collection('usuarios_globales').doc(uid);
+    await _firestore.runTransaction((tx) async {
+      final perfil = (await tx.get(ref)).data();
+      final iglesia = (await tx.get(
+        _firestore.collection('iglesias').doc(iglesiaId),
+      )).data();
+      if (currentUser?.uid != uid ||
+          perfil == null ||
+          perfil.containsKey('pertenenciaId') ||
+          perfil['iglesiaId'] != iglesiaId ||
+          !['servidor', 'lider_area'].contains(perfil['rolGlobal']) ||
+          iglesia == null ||
+          iglesia['adminUid'] == uid) {
+        throw StateError('La pertenencia actual no admite salida legacy.');
+      }
+      tx.update(ref, {
+        'iglesiaId': FieldValue.delete(),
+        'rolGlobal': FieldValue.delete(),
+        'descripcion': FieldValue.delete(),
+      });
+    });
+  }
 
   static Future<void>? _googleInitialization;
 
@@ -22,8 +86,14 @@ class AuthService {
 
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
+  Future<UserCredential> iniciarConEmail(String email, String password) =>
+      _auth.signInWithEmailAndPassword(email: email, password: password);
+
+  Future<UserCredential> crearConEmail(String email, String password) =>
+      _auth.createUserWithEmailAndPassword(email: email, password: password);
+
   bool get _googleSignInNativoDisponible {
-    if (kIsWeb) {
+    if (kIsWeb || const bool.fromEnvironment('FESYNC_FINANZAS_DEMO')) {
       return false;
     }
 
@@ -37,6 +107,9 @@ class AuthService {
   }
 
   Future<UserCredential?> iniciarSesionConGoogle() async {
+    if (const bool.fromEnvironment('FESYNC_FINANZAS_DEMO')) {
+      throw StateError('En la prueba local usa correo y contraseña.');
+    }
     if (kIsWeb) {
       final googleProvider = GoogleAuthProvider();
 
@@ -82,40 +155,8 @@ class AuthService {
     return UsuarioModel.fromMap(doc.data()!, uid);
   }
 
-  String _mensajeFuncion(FirebaseFunctionsException error) {
-    final mensaje = error.message?.trim();
-
-    if (mensaje != null && mensaje.isNotEmpty) {
-      return mensaje;
-    }
-
-    switch (error.code) {
-      case 'unauthenticated':
-        return 'Debes iniciar sesión.';
-
-      case 'invalid-argument':
-        return 'Los datos ingresados no son válidos.';
-
-      case 'not-found':
-        return 'No se encontró la congregación.';
-
-      case 'already-exists':
-        return 'Ese código ya está en uso.';
-
-      case 'failed-precondition':
-        return 'No fue posible completar esta operación en el estado actual de tu cuenta.';
-
-      case 'permission-denied':
-        return 'No tienes permisos para realizar esta operación.';
-
-      case 'unavailable':
-        return 'El servicio no está disponible temporalmente. Inténtalo nuevamente.';
-
-      default:
-        return 'No fue posible completar la operación.';
-    }
-  }
-
+  // Wrappers compatibles: conservan Future<String?>, pero nunca omiten solicitudId.
+  // Un consumidor debe confirmar una intención mediante el nuevo contrato tipado.
   Future<String?> vincularConCodigo({
     required String uid,
     required String email,
@@ -124,29 +165,39 @@ class AuthService {
     String? fotoUrl,
     String? descripcionUsuario,
   }) async {
-    final user = _auth.currentUser;
+    final resultado = await vincularConCodigoPersistente(
+      uid: uid,
+      email: email,
+      nombre: nombre,
+      codigo: codigo,
+      fotoUrl: fotoUrl,
+      descripcionUsuario: descripcionUsuario,
+    );
+    return resultado.confirmado ? null : resultado.mensaje;
+  }
 
-    if (user == null || user.uid != uid) {
-      return 'Debes iniciar sesión nuevamente.';
+  Future<ResultadoIngreso> vincularConCodigoPersistente({
+    required String uid,
+    required String email,
+    required String nombre,
+    required String codigo,
+    String? fotoUrl,
+    String? descripcionUsuario,
+    bool confirmarNuevaIntencion = false,
+  }) async {
+    if (currentUser?.uid != uid) {
+      return const ResultadoIngreso(
+        EstadoResultadoIngreso.requiereReconciliacion,
+        'Debes iniciar sesión nuevamente.',
+      );
     }
-
-    try {
-      final callable = _functions.httpsCallable('vincularUsuarioConCodigo');
-
-      await callable.call({
-        'codigo': codigo.trim().toUpperCase(),
-        'nombre': nombre.trim(),
-        'email': email.trim(),
-        'fotoUrl': fotoUrl?.trim() ?? '',
-        'descripcion': descripcionUsuario?.trim() ?? '',
-      });
-
-      return null;
-    } on FirebaseFunctionsException catch (e) {
-      return _mensajeFuncion(e);
-    } catch (error) {
-      return 'No fue posible vincular tu cuenta: $error';
-    }
+    return ingreso.ingresar(TipoIngresoPendiente.vinculacion, {
+      'codigo': codigo.trim().toUpperCase(),
+      'nombre': nombre.trim(),
+      'email': email.trim(),
+      'fotoUrl': fotoUrl?.trim() ?? '',
+      'descripcion': descripcionUsuario?.trim() ?? '',
+    }, nuevaIntencionConfirmada: confirmarNuevaIntencion);
   }
 
   Future<String?> registrarNuevaIglesia({
@@ -159,31 +210,45 @@ class AuthService {
     String? fotoUrlAdmin,
     String? descripcionAdmin,
   }) async {
-    final user = _auth.currentUser;
+    final resultado = await registrarNuevaIglesiaPersistente(
+      uid: uid,
+      email: email,
+      nombreAdmin: nombreAdmin,
+      nombreIglesia: nombreIglesia,
+      codigoDeseado: codigoDeseado,
+      descripcionIglesia: descripcionIglesia,
+      fotoUrlAdmin: fotoUrlAdmin,
+      descripcionAdmin: descripcionAdmin,
+    );
+    return resultado.confirmado ? null : resultado.mensaje;
+  }
 
-    if (user == null || user.uid != uid) {
-      return 'Debes iniciar sesión nuevamente.';
+  Future<ResultadoIngreso> registrarNuevaIglesiaPersistente({
+    required String uid,
+    required String email,
+    required String nombreAdmin,
+    required String nombreIglesia,
+    required String codigoDeseado,
+    required String descripcionIglesia,
+    String? fotoUrlAdmin,
+    String? descripcionAdmin,
+    bool confirmarNuevaIntencion = false,
+  }) async {
+    if (currentUser?.uid != uid) {
+      return const ResultadoIngreso(
+        EstadoResultadoIngreso.requiereReconciliacion,
+        'Debes iniciar sesión nuevamente.',
+      );
     }
-
-    try {
-      final callable = _functions.httpsCallable('registrarNuevaIglesiaSegura');
-
-      await callable.call({
-        'email': email.trim(),
-        'nombreAdmin': nombreAdmin.trim(),
-        'nombreIglesia': nombreIglesia.trim(),
-        'codigo': codigoDeseado.trim().toUpperCase(),
-        'descripcionIglesia': descripcionIglesia.trim(),
-        'fotoUrl': fotoUrlAdmin?.trim() ?? '',
-        'descripcionAdmin': descripcionAdmin?.trim() ?? '',
-      });
-
-      return null;
-    } on FirebaseFunctionsException catch (e) {
-      return _mensajeFuncion(e);
-    } catch (error) {
-      return 'No fue posible crear la congregación: $error';
-    }
+    return ingreso.ingresar(TipoIngresoPendiente.creacionIglesia, {
+      'email': email.trim(),
+      'nombreAdmin': nombreAdmin.trim(),
+      'nombreIglesia': nombreIglesia.trim(),
+      'codigo': codigoDeseado.trim().toUpperCase(),
+      'descripcionIglesia': descripcionIglesia.trim(),
+      'fotoUrl': fotoUrlAdmin?.trim() ?? '',
+      'descripcionAdmin': descripcionAdmin?.trim() ?? '',
+    }, nuevaIntencionConfirmada: confirmarNuevaIntencion);
   }
 
   Future<void> cerrarSesion() async {

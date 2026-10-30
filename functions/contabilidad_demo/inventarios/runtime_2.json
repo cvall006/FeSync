@@ -1,0 +1,17 @@
+{
+  "id": "admin-2",
+  "versionContratoInventario": 2,
+  "contrato": "identidad-2-economia-1",
+  "sha256InventarioBase": "8687f7eb5798728deea4b43cd6f32f9c664889c0f926f46a7d22c1270efd90a4",
+  "sha256Historico": "ef1f1d433ae510780c5d0ef4c03c103d494c5be7562c513aaeccf19449b0551b",
+  "administrativos": {
+    "fuentes.js": "8059d64f20b40f8e1c7a331ff45972e3237640f62ee4eba481d781366e7661f6",
+    "transicion.js": "ea1920af9d76b2118041569b66a2aeb4fcee9806f41cfecf8777ab73c64f3be7",
+    "entorno.js": "690f0bcab84949462e0c25ae25e3073b735b948e428326361d408a4eb5dc9afc"
+  },
+  "adicionales": {},
+  "compatibles": [
+    "legado-1"
+  ],
+  "sha256CambiosIdentidad": "bd3462bb12e9e6197235868f39a54e6d6b272e0e69f3cf4aefb18881d46b0d95"
+}

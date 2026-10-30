@@ -1,0 +1,8 @@
+'use strict';
+const assert=require('node:assert/strict');
+const cli='C:/Users/igles/AppData/Roaming/npm/node_modules/firebase-tools/lib/';
+const P='fesync-app-2026',I='8IYVbD8z9U3noEYzkpUZ';
+async function sesion(){const c=require(cli+'configstore').configstore.get('tokens');assert.ok(c);let token=c.access_token;
+if(!token||c.expires_at<Date.now()+60000){const a=require(cli+'api'),r=await fetch('https://www.googleapis.com/oauth2/v3/token',{method:'POST',redirect:'error',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',refresh_token:c.refresh_token,client_id:a.clientId(),client_secret:a.clientSecret()}),signal:AbortSignal.timeout(20000)});assert.equal(r.status,200);token=(await r.json()).access_token;}
+return async(host,route,{body,binary=false,missing=false,method}={})=>{assert.ok(['firebasehosting.googleapis.com','firebaserules.googleapis.com','cloudfunctions.googleapis.com','identitytoolkit.googleapis.com','firestore.googleapis.com'].includes(host));if(method)assert.ok(method==='PATCH'&&host==='identitytoolkit.googleapis.com'&&route==='/admin/v2/projects/'+P+'/config?update_mask=authorizedDomains'&&Object.keys(body||{}).join()==='authorizedDomains');const r=await fetch('https://'+host+route,{method:method??(body===undefined?'GET':'POST'),redirect:'error',headers:{Authorization:'Bearer '+token,...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(30000)});if(missing&&r.status===404)return null;if(!r.ok)throw Error(host+' HTTP_'+r.status);return binary?Buffer.from(await r.arrayBuffer()):r.json();};}
+module.exports={sesion,P,I,cli};

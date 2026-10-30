@@ -1,0 +1,26 @@
+{
+  "id": "admin-4",
+  "versionContratoInventario": 2,
+  "contrato": "identidad-2-economia-1",
+  "sha256InventarioBase": "8687f7eb5798728deea4b43cd6f32f9c664889c0f926f46a7d22c1270efd90a4",
+  "sha256Historico": "ef1f1d433ae510780c5d0ef4c03c103d494c5be7562c513aaeccf19449b0551b",
+  "administrativos": {
+    "fuentes.js": "8059d64f20b40f8e1c7a331ff45972e3237640f62ee4eba481d781366e7661f6",
+    "transicion.js": "ea1920af9d76b2118041569b66a2aeb4fcee9806f41cfecf8777ab73c64f3be7",
+    "entorno.js": "690f0bcab84949462e0c25ae25e3073b735b948e428326361d408a4eb5dc9afc"
+  },
+  "adicionales": {
+    "finanzas_core/adaptador_firestore_v2.js": "f6accb70c8fd0f9aceec554ae7860421d08eac0343f6ee7f572020208d1bdab2",
+    "contabilidad_generaciones_v2_demo/entorno.js": "a111882c63dc1f53cd8b48397e2d95367cdec1a4362667ca266fdb98afb3b9d0",
+    "contabilidad_generaciones_v2_demo/fuente.js": "9d5dc60ceaf58d0cdcead44687e00d3a6bfd9cb1f5ff858e799f21c896cb338f",
+    "contabilidad_generaciones_v2_demo/modelo.js": "7b750af794da406903ba97e9d4d3bf9290bf1e2172f19a66fe30c843eb88ef7b",
+    "contabilidad_generaciones_v2_demo/preparacion.js": "0f54d88f33f7f6fe73ebaf9657b227aad5caad9aafae01249779f7dc39e675cc",
+    "contabilidad_generaciones_v2_demo/util.js": "1a38867d97fe40a35784f147bd77a15de895791d1d39e62f265739f2f7801b82"
+  },
+  "compatibles": [
+    "legado-1",
+    "admin-2",
+    "admin-3"
+  ],
+  "sha256CambiosIdentidad": "bd3462bb12e9e6197235868f39a54e6d6b272e0e69f3cf4aefb18881d46b0d95"
+}

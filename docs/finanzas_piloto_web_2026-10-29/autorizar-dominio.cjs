@@ -1,0 +1,11 @@
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{sesion,P}=require('./sesion.cjs');
+(async()=>{const r=await sesion(),web=JSON.parse(fs.readFileSync(path.join(__dirname,'web-publicado.json'))),domain=new URL(web.url).hostname;
+assert.equal(domain,'fesync-app-2026--finanzas-piloto-8iyv-tzvtnyc6.web.app');
+const before=await r('identitytoolkit.googleapis.com','/admin/v2/projects/'+P+'/config'),expected=['localhost','fesync-app-2026.firebaseapp.com','fesync-app-2026.web.app'];assert.deepEqual(before.authorizedDomains,expected);
+fs.writeFileSync(path.join(__dirname,'auth-dominios-respaldo.json'),JSON.stringify({authorizedDomains:expected},null,2)+'\n',{flag:'wx'});
+await r('identitytoolkit.googleapis.com','/admin/v2/projects/'+P+'/config?update_mask=authorizedDomains',{method:'PATCH',body:{authorizedDomains:[...expected,domain]}});
+const after=await r('identitytoolkit.googleapis.com','/admin/v2/projects/'+P+'/config');assert.deepEqual(after.authorizedDomains,[...expected,domain]);
+const strip=({authorizedDomains,...x})=>x;assert.deepEqual(strip(after),strip(before),'Otro ajuste Auth cambio');
+const result={dominioAgregado:domain,authorizedDomains:after.authorizedDomains,otrosAjustesAuthIntactos:true,finanzasActivado:false};fs.writeFileSync(path.join(__dirname,'auth-dominios-resultado.json'),JSON.stringify(result,null,2)+'\n',{flag:'wx'});console.log(JSON.stringify(result));
+})().catch(e=>{console.error('DETENIDO: '+e.message);process.exitCode=1;});

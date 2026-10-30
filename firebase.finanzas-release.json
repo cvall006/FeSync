@@ -1,0 +1,12 @@
+{
+  "functions": [{ "source": "functions", "codebase": "fesync-normal-release-local" }],
+  "firestore": { "rules": "firestore.rules" },
+  "emulators": {
+    "auth": { "host": "127.0.0.1", "port": 9098 },
+    "functions": { "host": "127.0.0.1", "port": 5018 },
+    "firestore": { "host": "127.0.0.1", "port": 8088 },
+    "hub": { "host": "127.0.0.1", "port": 4418 },
+    "logging": { "host": "127.0.0.1", "port": 4518 },
+    "ui": { "enabled": false }, "singleProjectMode": true
+  }
+}

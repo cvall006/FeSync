@@ -75,6 +75,21 @@ service cloud.firestore {
 
     match /usuarios_globales/{userId} {
 
+      // Pertenencia y roles solo se modifican desde backend mediante Admin SDK.
+      // affectedKeys incluye adiciones, eliminaciones y cambios de tipo/valor.
+      // No exige pertenenciaId en perfiles legados ni lo genera desde cliente.
+      function conservaPertenencia() {
+        return !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['iglesiaId', 'rolGlobal', 'pertenenciaId']);
+      }
+
+      // Compatibilidad solo para perfiles sin generación financiera verificable.
+      // No permite quitar una generación ni añadirla desde el cliente.
+      function legadoSinPertenencia() {
+        return !('pertenenciaId' in resource.data) &&
+          !('pertenenciaId' in request.resource.data);
+      }
+
       /*
        * Cada usuario puede leer su propio perfil.
        *
@@ -120,6 +135,7 @@ service cloud.firestore {
        * iguales.
        */
       allow update: if autenticado() &&
+        conservaPertenencia() &&
         uid() == userId &&
         ('iglesiaId' in resource.data) &&
         ('rolGlobal' in resource.data) &&
@@ -131,96 +147,43 @@ service cloud.firestore {
           resource.data.rolGlobal;
 
       /*
-       * SALIR VOLUNTARIAMENTE
-       *
-       * Un miembro puede eliminar de sí mismo
-       * iglesiaId y rolGlobal.
-       *
-       * El administrador no puede hacerlo.
-       */
-      allow update: if autenticado() &&
-        uid() == userId &&
-        ('rolGlobal' in resource.data) &&
-        resource.data.rolGlobal !=
-          'admin_iglesia' &&
-        !(
-          'iglesiaId'
-          in request.resource.data
-        ) &&
-        !(
-          'rolGlobal'
-          in request.resource.data
-        );
-
-      /*
        * ADMINISTRADOR MODIFICANDO OTRO MIEMBRO.
+       *
+       * Solo descripción auxiliar. Salida, expulsión, cambio de iglesia
+       * y cambios de rol requieren backend, sin excepciones de SDK cliente.
        */
       allow update: if autenticado() &&
+        conservaPertenencia() &&
         uid() != userId &&
         ('iglesiaId' in resource.data) &&
-        esAdmin(
-          resource.data.iglesiaId
-        ) &&
-        (
-          !request.resource.data
-            .diff(resource.data)
-            .affectedKeys()
-            .hasAny(['rolGlobal', 'iglesiaId']) ||
-          get(/databases/$(database)/documents/iglesias/$(resource.data.iglesiaId))
-            .data.get('adminUid', '') != userId
-        ) &&
-        (
-          /*
-           * Cambiar descripción o rol.
-           */
-          (
-            ('iglesiaId' in request.resource.data) &&
-            request.resource.data.iglesiaId ==
-              resource.data.iglesiaId &&
-            request.resource.data
-              .diff(resource.data)
-              .affectedKeys()
-              .hasOnly([
-                'descripcion',
-                'rolGlobal'
-              ]) &&
-            (
-              !request.resource.data
-                .diff(resource.data)
-                .affectedKeys()
-                .hasAny(['rolGlobal']) ||
-              request.resource.data.rolGlobal
-                in [
-                  'servidor',
-                  'lider_area'
-                ]
-            )
-          )
-          ||
-          /*
-           * Quitar de la congregación.
-           */
-          (
-            request.resource.data
-              .diff(resource.data)
-              .affectedKeys()
-              .hasOnly([
-                'iglesiaId',
-                'rolGlobal',
-                'descripcion'
-              ]) &&
-            !(
-              'iglesiaId'
-              in request.resource.data
-            ) &&
-            !(
-              'rolGlobal'
-              in request.resource.data
-            )
-          )
-        );
+        esAdmin(resource.data.iglesiaId) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['descripcion']);
 
       allow delete: if false;
+
+      allow update: if autenticado() && legadoSinPertenencia() &&
+        uid() == userId &&
+        resource.data.get('rolGlobal', '') in ['servidor', 'lider_area'] &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['iglesiaId', 'rolGlobal', 'descripcion']) &&
+        !('iglesiaId' in request.resource.data) &&
+        !('rolGlobal' in request.resource.data);
+
+      allow update: if autenticado() && legadoSinPertenencia() &&
+        uid() != userId &&
+        resource.data.get('rolGlobal', '') in ['servidor', 'lider_area'] &&
+        esAdmin(resource.data.iglesiaId) &&
+        get(/databases/$(database)/documents/iglesias/$(resource.data.iglesiaId))
+          .data.get('adminUid', '') != userId &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['iglesiaId', 'rolGlobal', 'descripcion']) &&
+        (
+          (request.resource.data.get('iglesiaId', '') == resource.data.iglesiaId &&
+            request.resource.data.get('rolGlobal', '') in ['servidor', 'lider_area']) ||
+          (!('iglesiaId' in request.resource.data) &&
+            !('rolGlobal' in request.resource.data))
+        );
 
       /*
        * ======================================================
@@ -356,6 +319,99 @@ service cloud.firestore {
        * ======================================================
        */
 
+      // Ciclos y asignaciones manuales. El catálogo y las evaluaciones legacy
+      // mantienen sus rutas y permisos; ningún ciclo cerrado puede reabrirse.
+      match /escuela_ciclos/{cicloId} {
+        function cicloValido() {
+          let d = request.resource.data;
+          return d.keys().hasAll(['version', 'nombre', 'anio', 'estado',
+              'creadoPor', 'creadoEn', 'cerradoPor', 'cerradoEn']) &&
+            d.keys().hasOnly(['version', 'nombre', 'anio', 'estado',
+              'creadoPor', 'creadoEn', 'cerradoPor', 'cerradoEn',
+              'eliminado', 'eliminadoPor', 'eliminadoEn']) &&
+            d.version is int && d.version == 1 && d.nombre is string &&
+            d.nombre.size() > 0 && d.nombre.size() <= 120 &&
+            d.anio is int && d.anio >= 2000 && d.anio <= 2200 &&
+            d.creadoPor is string && d.creadoEn is timestamp;
+        }
+        allow read: if perteneceAIglesia(iglesiaId);
+        allow create: if esAdminOLider(iglesiaId) && cicloValido() &&
+          !request.resource.data.keys().hasAny(['eliminado', 'eliminadoPor', 'eliminadoEn']) &&
+          request.resource.data.estado == 'abierto' &&
+          request.resource.data.creadoPor == uid() &&
+          request.resource.data.creadoEn == request.time &&
+          request.resource.data.cerradoPor == null &&
+          request.resource.data.cerradoEn == null;
+        allow update: if esAdminOLider(iglesiaId) && cicloValido() &&
+          resource.data.get('eliminado', false) == false &&
+          resource.data.estado == 'abierto' && request.resource.data.estado == 'cerrado' &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['estado', 'cerradoPor', 'cerradoEn']) &&
+          request.resource.data.cerradoPor == uid() &&
+          request.resource.data.cerradoEn == request.time;
+        // Solo administrador: conserva el documento y todas sus asignaciones.
+        allow update: if esAdmin(iglesiaId) && cicloValido() &&
+          resource.data.get('eliminado', false) == false &&
+          request.resource.data.eliminado == true &&
+          request.resource.data.eliminadoPor == uid() &&
+          request.resource.data.eliminadoEn == request.time &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['eliminado', 'eliminadoPor', 'eliminadoEn']);
+        allow delete: if false;
+
+        match /asignaciones/{hermanoUid} {
+          function cicloAbierto() {
+            let ruta = /databases/$(database)/documents/iglesias/$(iglesiaId)/escuela_ciclos/$(cicloId);
+            return get(ruta).data.version == 1 && get(ruta).data.estado == 'abierto' &&
+              get(ruta).data.get('eliminado', false) == false &&
+              getAfter(ruta).data.get('eliminado', false) == false &&
+              getAfter(ruta).data.estado == 'abierto';
+          }
+          function asignacionValida() {
+            let d = request.resource.data;
+            return d.keys().hasAll(['version', 'hermanoUid', 'nombreHermano',
+                'moduloId', 'tituloModulo', 'estado', 'asignadoPor', 'asignadoEn',
+                'actualizadoPor', 'actualizadoEn', 'revision']) &&
+              d.keys().hasOnly(['version', 'hermanoUid', 'nombreHermano',
+                'moduloId', 'tituloModulo', 'estado', 'asignadoPor', 'asignadoEn',
+                'actualizadoPor', 'actualizadoEn', 'revision']) &&
+              d.version is int && d.version == 1 && d.hermanoUid == hermanoUid &&
+              d.nombreHermano is string && d.nombreHermano.size() <= 300 &&
+              d.moduloId is string && d.moduloId.size() > 0 &&
+              d.moduloId.size() <= 128 && d.moduloId.matches('^[^/]+$') &&
+              d.tituloModulo is string && d.tituloModulo.size() > 0 && d.tituloModulo.size() <= 500 &&
+              d.estado in ['pendiente', 'en_curso', 'completado'] &&
+              d.asignadoPor is string && d.asignadoEn is timestamp &&
+              d.actualizadoPor == uid() && d.actualizadoEn == request.time &&
+              d.revision is int && d.revision > 0 &&
+              get(rutaUsuario(hermanoUid)).data.get('iglesiaId', '') == iglesiaId;
+          }
+          function asignacionNuevaValida() {
+            let d = request.resource.data;
+            let modulo = /databases/$(database)/documents/iglesias/$(iglesiaId)/escuela_modulos/$(d.moduloId);
+            let hermano = get(rutaUsuario(hermanoUid)).data;
+            return exists(modulo) && d.tituloModulo == get(modulo).data.titulo &&
+              d.nombreHermano == (hermano.get('nombre', null) is string ? hermano.nombre : 'Sin nombre') &&
+              d.estado == 'pendiente' && d.asignadoPor == uid() &&
+              d.asignadoEn == request.time;
+          }
+          allow read: if perteneceAIglesia(iglesiaId);
+          allow create: if esAdminOLider(iglesiaId) && cicloAbierto() &&
+            asignacionValida() && asignacionNuevaValida() &&
+            request.resource.data.revision == 1;
+          allow update: if esAdminOLider(iglesiaId) && cicloAbierto() &&
+            asignacionValida() &&
+            request.resource.data.revision == resource.data.revision + 1 &&
+            (
+              (request.resource.data.moduloId != resource.data.moduloId &&
+                asignacionNuevaValida()) ||
+              request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['estado', 'actualizadoPor', 'actualizadoEn', 'revision'])
+            );
+          allow delete: if false;
+        }
+      }
+
       match /escuela_modulos/{moduloId} {
         allow read:
           if perteneceAIglesia(
@@ -440,6 +496,80 @@ service cloud.firestore {
           if esAdminOLider(
             iglesiaId
           );
+      }
+
+      /*
+       * FINANZAS: lecturas privadas y escrituras solo desde Admin SDK.
+       */
+      function perfilTitularFinanzasValido(adminId) {
+        return adminId is string && adminId.size() > 0 &&
+          exists(rutaUsuario(adminId)) &&
+          get(rutaUsuario(adminId)).data.get('iglesiaId', '') == iglesiaId &&
+          get(rutaUsuario(adminId)).data.get('rolGlobal', '') == 'admin_iglesia';
+      }
+
+      function tieneTitularFinanzasValido() {
+        return exists(/databases/$(database)/documents/iglesias/$(iglesiaId)) &&
+          perfilTitularFinanzasValido(
+            get(/databases/$(database)/documents/iglesias/$(iglesiaId))
+              .data.get('adminUid', '')
+          );
+      }
+
+      function esTitularFinanzas() {
+        return esAdmin(iglesiaId) && tieneTitularFinanzasValido() &&
+          get(/databases/$(database)/documents/iglesias/$(iglesiaId))
+            .data.adminUid == uid();
+      }
+
+      function puedeLeerFinanzas() {
+        let acceso = /databases/$(database)/documents/iglesias/$(iglesiaId)/finanzas_config/acceso;
+        return perteneceAIglesia(iglesiaId) && tieneTitularFinanzasValido() &&
+          exists(acceso) && get(acceso).data.get('moduloHabilitado', false) == true &&
+          (
+            esTitularFinanzas() ||
+            get(acceso).data.get('encargadoUid', '') == uid()
+          );
+      }
+
+      // Descubrimiento individual: no concede acceso a las rutas financieras.
+      match /finanzas_elegibilidad/{userId} {
+        allow get: if autenticado() && uid() == userId &&
+          perteneceAIglesia(iglesiaId);
+        allow list, create, update, delete: if false;
+      }
+
+      match /finanzas_config/{docId} {
+        // Solo el documento conocido; no se permite enumerar configuraciones.
+        allow get: if docId == 'acceso' &&
+          (esTitularFinanzas() || puedeLeerFinanzas());
+        allow list, create, update, delete: if false;
+      }
+
+      match /finanzas_cuentas/{cuentaId} {
+        allow get, list: if puedeLeerFinanzas();
+        allow create, update, delete: if false;
+      }
+
+      match /finanzas_categorias/{categoriaId} {
+        allow get, list: if puedeLeerFinanzas();
+        allow create, update, delete: if false;
+      }
+
+      match /finanzas_movimientos/{movimientoId} {
+        // El documento completo contiene datos privados. Lectura solo vía callable.
+        allow get, list: if false;
+        allow create, update, delete: if false;
+      }
+
+      match /finanzas_cierres/{cierreId} {
+        allow get, list: if false;
+        allow create, update, delete: if false;
+      }
+
+      match /finanzas_auditoria/{eventoId} {
+        allow get, list: if false;
+        allow create, update, delete: if false;
       }
 
       /*

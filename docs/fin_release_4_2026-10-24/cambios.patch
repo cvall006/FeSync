@@ -1,0 +1,4058 @@
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\finanzas_publicacion.js" b/functions/finanzas_publicacion.js
+index 831bfae..ba62fab 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\finanzas_publicacion.js"
++++ b/functions/finanzas_publicacion.js
+@@ -4,15 +4,10 @@
+ // No habilita ejecución fuera de demo-fesync ni exporta mantenimiento/fixtures.
+ const { exigir, registroExacto } = require('./finanzas_core/dinero');
+ const { validarConfiguracionContable, exigirPeriodoContableAbierto } = require('./finanzas_core/configuracion');
+-const { crearApiIncremental } = require('./test/finanzas_v1_incremental/api');
+-const c = require('./test/finanzas_v1_incremental/comun');
++const { crearApiIncremental } = require('./finanzas_v1/api');
++const c = require('./finanzas_v1/comun');
+ 
+-const permisos = Object.freeze({
+-  crearCuenta: 'administrarCatalogos', crearCategoria: 'administrarCatalogos',
+-  apertura: 'registrarAjustes', ingreso: 'registrarIngresosGastos',
+-  gasto: 'registrarIngresosGastos', transferencia: 'transferir',
+-  reversion: 'anularMovimientos', ajuste: 'registrarAjustes',
+-});
++const { PERMISOS_OPERACION: permisos } = require('./finanzas_v1/solicitudes');
+ 
+ function habilitacionValida(datos, iglesiaId) {
+   return datos && Object.keys(datos).sort().join(',') ===
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_inventarios_versionados.test.js" b/functions/test/finanzas_inventarios_versionados.test.js
+index b131f77..2b49eec 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_inventarios_versionados.test.js"
++++ b/functions/test/finanzas_inventarios_versionados.test.js
+@@ -4,8 +4,11 @@ const assert = require('node:assert/strict');
+ const fs = require('node:fs');
+ const path = require('node:path');
+ const { createHash } = require('node:crypto');
+-const { obtenerContextoFuentes, verificarFuentes } = require('../contabilidad_demo/fuentes');
+-const DIR = path.resolve(__dirname, '../contabilidad_demo');
++// Compatibilidad de identidades contra sus bytes históricos exactos. El rechazo
++// del árbol de publicación actual se verifica en finanzas_consolidacion.test.js.
++const historico = require('./soporte/runtime_historico').cargarHistorico();
++const { obtenerContextoFuentes, verificarFuentes } = historico.cargar('contabilidad_demo/fuentes');
++const DIR = historico.DIR;
+ const base = JSON.parse(fs.readFileSync(path.join(DIR, 'fuentes_v1.json'), 'utf8'));
+ const sha = v => createHash('sha256').update(v).digest('hex');
+ const parametros = { iglesiaId: 'iglesia', ejecucionId: 'ejecucion' };
+@@ -16,7 +19,7 @@ function pareja(legado = false) {
+   { versionEsquema: 2, versionProcedimiento: 1, versionAlgoritmo: 1, epoca: 1, activa: false,
+     huellaSoftware: legado ? c.identidadHistorica : c.huellaSoftware, ...(legado ? {} : c.metadatos) }];
+ }
+-test('V1 se reproduce con bytes originales; runtime actual tiene otra identidad', () => {
++test('Fixture historica: V1 se reproduce con bytes originales y admin-6 tiene otra identidad', () => {
+   const c = obtenerContextoFuentes(); assert.notEqual(c.huellaSoftware, c.identidadHistorica);
+   const h = JSON.parse(fs.readFileSync(path.join(DIR, 'inventarios/legado_1.json')));
+   const f = createHash('sha256').update(JSON.stringify(base));
+@@ -28,7 +31,7 @@ for (const legado of [false, true]) test('Identidad acreditada sin mutar metadat
+   obtenerContextoFuentes().comprobarEjecucion(e, g, parametros); assert.deepEqual([e, g], antes);
+ });
+ for (const ruta of [...Object.keys(base), ...Object.keys(JSON.parse(fs.readFileSync(path.join(DIR, 'inventarios/runtime_6.json'))).adicionales)]) test('Archivo servidor acreditado alterado: ' + ruta, t => {
+-  const objetivo = path.resolve(__dirname, '..', ruta), leer = fs.readFileSync.bind(fs);
++  const objetivo = path.resolve(historico.raiz, ruta), leer = fs.readFileSync.bind(fs);
+   t.mock.method(fs, 'readFileSync', (r, ...args) => path.resolve(String(r)) === objetivo ?
+     Buffer.concat([leer(r), Buffer.from('\n// alteracion virtual\n')]) : leer(r, ...args));
+   assert.throws(verificarFuentes, e => e.codigo === 'DEMO_FUENTES_NO_ACREDITADAS');
+@@ -66,7 +69,7 @@ for (const [nombre, alterar] of [
+ 
+ function ampliarVirtualmente(t, acreditar) {
+   const id = 'admin-fixture-3', nombre = 'finanzas_core/fixture_inventario.js', codigo = Buffer.from("'use strict';\n");
+-  const rutaVirtual = path.resolve(__dirname, '..', nombre), carpeta = path.dirname(rutaVirtual);
++  const rutaVirtual = path.resolve(historico.raiz, nombre), carpeta = path.dirname(rutaVirtual);
+   const leer = fs.readFileSync.bind(fs), listar = fs.readdirSync.bind(fs), stat = fs.lstatSync.bind(fs);
+   const registro = JSON.parse(leer(path.join(DIR, 'inventarios/registro.json')));
+   const d = JSON.parse(leer(path.join(DIR, 'inventarios/runtime_6.json')));
+@@ -101,7 +104,7 @@ test('V2 existente acreditado expresamente por admin-3, sin alterar descriptor a
+   const d = JSON.parse(fs.readFileSync(path.join(DIR, 'inventarios/runtime_3.json')));
+   assert.equal(r.actual, 'admin-6'); assert.deepEqual(r.pendientes, []);
+   assert.equal(d.adicionales['finanzas_core/adaptador_firestore_v2.js'],
+-    sha(fs.readFileSync(path.resolve(__dirname, '../finanzas_core/adaptador_firestore_v2.js'))));
++    sha(fs.readFileSync(path.resolve(historico.raiz, 'finanzas_core/adaptador_firestore_v2.js'))));
+   assert.equal(sha(fs.readFileSync(path.join(DIR, 'inventarios/runtime_2.json'))),
+     'c4d3279e32bacb8514f54f076614dfe0d7505238e85f6b2789c5de4dc807e1a4');
+ });
+@@ -253,7 +256,7 @@ for (const [id, huella] of Object.entries({
+   assert.throws(() => obtenerContextoFuentes(id), x => x.codigo === 'DEMO_FUENTES_NO_ACREDITADAS');
+ });
+ test('fuente admin-5 ausente rechaza sin aceptar subconjuntos', t => {
+-  const listar = fs.readdirSync.bind(fs), carpeta = path.resolve(__dirname, '../contabilidad_preparacion_acreditada_demo');
++  const listar = fs.readdirSync.bind(fs), carpeta = path.resolve(historico.raiz, 'contabilidad_preparacion_acreditada_demo');
+   t.mock.method(fs, 'readdirSync', (r, ...args) => {
+     const entradas = listar(r, ...args);
+     return path.resolve(String(r)) === carpeta ? entradas.filter(e => e.name !== 'runtime.js') : entradas;
+@@ -278,7 +281,7 @@ test('cierre nuevo de 20 JS acreditado, con imports estaticos exactos', () => {
+   visitar('contabilidad_preparacion_acreditada_demo/verificacion.js'); assert.equal(vistos.size, 20);
+ });
+ test('acreditar codigo no convierte la capacidad local ni acepta admin-6 como capacidad del preparador', () => {
+-  const { crearPreparador } = require('../contabilidad_preparacion_acreditada_demo/preparacion');
++  const { crearPreparador } = historico.cargar('contabilidad_preparacion_acreditada_demo/preparacion');
+   assert.throws(() => crearPreparador({ runtime: obtenerContextoFuentes('admin-6'),
+     db: new Proxy({}, { get() { assert.fail('No tocar DB sin capacidad local'); } }) }),
+   e => e.message === 'E_RUNTIME_NO_AUTORIZADO');
+@@ -306,7 +309,7 @@ test('admin-6 cubre exactamente las 39 fuentes y conserva los 34 hashes anterior
+   assert.equal(verificarFuentes('admin-6'), '16d281e09313a4a6f80f37b4d686d70fa5135e1e43e120ed91923bf5393b92e1');
+ });
+ test('capacidad admin-6 autentica del puente no es el contexto D2 ni una etiqueta', () => {
+-  const rt = require('../contabilidad_preparacion_v2_admin_demo/runtime');
++  const rt = historico.cargar('contabilidad_preparacion_v2_admin_demo/runtime');
+   const cap = rt.autorizarAdministrativo({inventarioId:'admin-6'});
+   const i = rt.exigirRuntime(cap,true); assert.equal(i.inventarioId,'admin-6');
+   assert.equal(i.acreditacionAdministrativa,'ACREDITADA'); assert.equal(i.huellaSoftware,verificarFuentes());
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_mvp_runtime\\api.js" b/functions/test/finanzas_mvp_runtime/api.js
+index d43291c..bc2c980 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_mvp_runtime\\api.js"
++++ b/functions/test/finanzas_mvp_runtime/api.js
+@@ -2,45 +2,15 @@
+ 
+ // API exclusiva del circuito demo. No se exporta desde functions/index.js.
+ const { crearAdaptadorFirestore, LIMITES } = require('../../finanzas_core/adaptador_firestore');
+-const { exigirPermisoContable } = require('../../finanzas_core/autorizacion');
+ const { calcularLibro } = require('../../finanzas_core/asientos');
+-const { exigir, registroExacto, ErrorContable } = require('../../finanzas_core/dinero');
++const { exigir, registroExacto } = require('../../finanzas_core/dinero');
+ const { exigirEscrituraV1 } = require('../../finanzas_core/protocolo');
+-const { createHash } = require('node:crypto');
+-function entorno(env = process.env) {
+-  if (env.GCLOUD_PROJECT !== 'demo-fesync' ||
+-      (env.GOOGLE_CLOUD_PROJECT !== undefined && env.GOOGLE_CLOUD_PROJECT !== 'demo-fesync') ||
+-      env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8088' ||
+-      env.FIREBASE_AUTH_EMULATOR_HOST !== '127.0.0.1:9098' || env.FUNCTIONS_EMULATOR !== 'true' ||
+-      env.GOOGLE_APPLICATION_CREDENTIALS || env.FIREBASE_TOKEN || env.GOOGLE_OAUTH_ACCESS_TOKEN) throw Error('SOLO_EMULADOR_DEMO');
+-}
+-const version = s => { exigir(s.exists && s.updateTime, 'CONFIGURACION_REQUERIDA'); return `${s.updateTime.seconds}:${s.updateTime.nanoseconds}`; };
+-const id = v => exigir(typeof v === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(v), 'ID_INVALIDO');
+-function canon(v) { return v && typeof v === 'object' ? Array.isArray(v) ? `[${v.map(canon).join(',')}]` :
+-  `{${Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canon(v[k])).join(',')}}` : JSON.stringify(v); }
+-const huella = v => createHash('sha256').update(canon(v)).digest('hex');
+-const permisos = { crearCuenta: 'administrarCatalogos', crearCategoria: 'administrarCatalogos',
+-  apertura: 'registrarAjustes', ingreso: 'registrarIngresosGastos', gasto: 'registrarIngresosGastos',
+-  transferencia: 'transferir', reversion: 'anularMovimientos', ajuste: 'registrarAjustes' };
++const { crearSolicitudes, version, id, canon } = require('../../finanzas_v1/solicitudes');
++const { entorno } = require('../../finanzas_v1/entorno');
+ 
+ function crearApi({ db, FieldValue, HttpsError, adaptador }) {
+   const adapter = adaptador ?? crearAdaptadorFirestore({ db, FieldValue });
+-  // Todos los documentos de autorización se leen dentro del mismo intento.
+-  async function contexto(tx, uid, permiso = 'leer') {
+-    const actorS = await tx.get(db.doc(`usuarios_globales/${uid}`)), actor = actorS.data();
+-    exigir(actor && typeof actor.iglesiaId === 'string', 'CONTABILIDAD_NO_AUTORIZADA'); id(actor.iglesiaId);
+-    const iglesiaId = actor.iglesiaId, base = `iglesias/${iglesiaId}`;
+-    const [iglesiaS, accesoS] = await Promise.all([tx.get(db.doc(base)), tx.get(db.doc(`${base}/finanzas_config/acceso`))]);
+-    const iglesia = iglesiaS.data(); exigir(iglesia && typeof iglesia.adminUid === 'string', 'CONTABILIDAD_NO_AUTORIZADA'); id(iglesia.adminUid);
+-    const titularS = iglesia.adminUid === uid ? actorS : await tx.get(db.doc(`usuarios_globales/${iglesia.adminUid}`));
+-    const resultado = exigirPermisoContable({ auth: { uid }, iglesiaId,
+-      perfilActor: { id: uid, datos: actor }, iglesia: { id: iglesiaId, datos: iglesia },
+-      perfilTitular: { id: iglesia.adminUid, datos: titularS.data() },
+-      acceso: { id: 'acceso', iglesiaId, version: version(accesoS), datos: accesoS.data() },
+-      pertenenciaIdEsperada: actor.pertenenciaId, versionAccesoEsperada: version(accesoS) }, permiso);
+-    return { iglesiaId, base, actor, iglesiaS, accesoS, permisos: resultado.permisos,
+-      contexto: { iglesiaId, pertenenciaId: actor.pertenenciaId } };
+-  }
++  const { contexto, callable, ejecutar } = crearSolicitudes({ db, HttpsError, adaptador: adapter });
+   async function limitado(tx, base, nombre, limite) {
+     const q = await tx.get(db.collection(`${base}/${nombre}`).limit(limite + 1));
+     exigir(q.size <= limite, 'LIMITE_LIBRO_EXCEDIDO');
+@@ -94,57 +64,6 @@ function crearApi({ db, FieldValue, HttpsError, adaptador }) {
+       return { estado: 'CONFIGURADA' };
+     });
+   }
+-  async function ejecutar(uid, data) {
+-    registroExacto(data, ['solicitudId', 'contexto', 'operacion', 'campos']);
+-    exigir(/^[A-Za-z0-9_-]{16,128}$/.test(data.solicitudId), 'SOLICITUD_ID_INVALIDA');
+-    exigir(Object.hasOwn(permisos, data.operacion), 'OPERACION_NO_IMPLEMENTADA');
+-    exigir(Buffer.byteLength(JSON.stringify(data)) <= LIMITES.bytesSolicitud, 'SOLICITUD_DEMASIADO_GRANDE');
+-    const op = data.operacion, campos = data.campos, catalogo = ['crearCuenta', 'crearCategoria'].includes(op);
+-    const requeridos = op === 'crearCuenta' ? ['cuenta'] : op === 'crearCategoria' ? ['categoria'] :
+-      op === 'transferencia' ? ['origenId', 'destinoId', 'montoMinor', 'fechaContable'] :
+-      op === 'reversion' ? ['originalId', 'fechaContable', 'motivo', 'referenciaAuditoria'] :
+-      op === 'ajuste' ? ['cuentaId', 'deltaMinor', 'fechaContable', 'motivo', 'referenciaAuditoria'] :
+-      ['cuentaId', 'montoMinor', 'fechaContable', ...(['ingreso', 'gasto'].includes(op) ? ['categoriaId'] : [])];
+-    registroExacto(campos, requeridos, ['ingreso', 'gasto', 'apertura'].includes(op) ? ['descripcion'] : []);
+-    const entrada = await db.runTransaction(async tx => {
+-      const c = await contexto(tx, uid, permisos[op]);
+-      exigir(canon(data.contexto) === canon(c.contexto), 'PERTENENCIA_ANTERIOR');
+-      const intentRef = db.doc(`finanzas_mvp_solicitudes/${uid}/solicitudes/${data.solicitudId}`);
+-      const anterior = await tx.get(intentRef), fingerprint = huella(data);
+-      if (anterior.exists) { exigir(anterior.data().huella === fingerprint, 'SOLICITUD_ID_REUTILIZADA'); return anterior.data().entrada; }
+-      const [config, periodo] = await Promise.all(['finanzas_config/contabilidad', 'finanzas_control/periodo'].map(r => tx.get(db.doc(`${c.base}/${r}`))));
+-      const precondiciones = { pertenenciaId: c.actor.pertenenciaId, acceso: version(c.accesoS), iglesia: version(c.iglesiaS), configuracion: version(config), controlPeriodo: version(periodo) };
+-      const vers = async (nombre, key) => { id(key); return version(await tx.get(db.doc(`${c.base}/${nombre}/${key}`))); };
+-      if (['ingreso', 'gasto'].includes(op)) precondiciones.categoria = await vers('finanzas_categorias', campos.categoriaId);
+-      if (['ingreso', 'gasto', 'apertura'].includes(op)) precondiciones.cuenta = await vers('finanzas_cuentas', campos.cuentaId);
+-      if (['transferencia', 'ajuste', 'reversion'].includes(op)) {
+-        let ids;
+-        if (op === 'reversion') {
+-          id(campos.originalId);
+-          const original = await tx.get(db.doc(`${c.base}/finanzas_movimientos/${campos.originalId}`));
+-          const reversa = await tx.get(db.doc(`${c.base}/finanzas_reversiones/${campos.originalId}`));
+-          precondiciones.original = { version: version(original), versionReversion: reversa.exists ? version(reversa) : null };
+-          ids = original.data().movimiento.asientos.map(a => a.cuentaId);
+-        } else ids = op === 'ajuste' ? [campos.cuentaId] : [campos.origenId, campos.destinoId];
+-        precondiciones.cuentas = await Promise.all(ids.map(async cuentaId => ({ cuentaId, version: await vers('finanzas_cuentas', cuentaId) })));
+-      }
+-      const entrada = { auth: { uid }, operacion: op, solicitud: { ...campos, versionEsquema: 1,
+-        solicitudId: data.solicitudId, iglesiaId: c.iglesiaId, periodoId: catalogo ? periodo.data().periodosAbiertos[0] : campos.fechaContable.slice(0, 7), precondiciones } };
+-      tx.create(intentRef, { huella: fingerprint, entrada }); // Inmutable: jamás regenerar precondiciones al reintentar.
+-      return entrada;
+-    });
+-    return adapter.ejecutar(entrada);
+-  }
+-  function callable(fn) { return async request => {
+-    entorno();
+-    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicia sesión.');
+-    try { id(request.auth.uid); return await fn(request.auth.uid, request.data); }
+-    catch (e) {
+-      if (e instanceof ErrorContable) throw new HttpsError(e.codigo === 'CONTABILIDAD_NO_AUTORIZADA' ? 'permission-denied' :
+-        e.codigo === 'RESULTADO_INCIERTO' ? 'unavailable' : 'failed-precondition', e.codigo, { codigo: e.codigo });
+-      throw new HttpsError('unavailable', 'Resultado incierto. Recupera la misma solicitud.');
+-    }
+-  }; }
+-  return { consultar: callable(consultar), inicializar: callable(inicializar), ejecutar: callable(ejecutar) };
++  return { consultar: callable(consultar), inicializar: callable(inicializar), ejecutar };
+ }
+ module.exports = { crearApi, entorno };
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_mvp_runtime\\index.js" b/functions/test/finanzas_mvp_runtime/index.js
+index 2268165..fc872ab 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_mvp_runtime\\index.js"
++++ b/functions/test/finanzas_mvp_runtime/index.js
+@@ -6,7 +6,7 @@ const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+ const { onCall, HttpsError } = require('firebase-functions/v2/https');
+ initializeApp({ projectId: 'demo-fesync' });
+ const api = crearApi({ db: getFirestore(), FieldValue, HttpsError });
+-const incremental = require('../finanzas_v1_incremental/api').crearApiIncremental({ db: getFirestore(), FieldValue, HttpsError });
++const incremental = require('../../finanzas_v1/api').crearApiIncremental({ db: getFirestore(), FieldValue, HttpsError });
+ for (const [nombre, fn] of Object.entries({ finanzasMvpConsultar: api.consultar,
+   finanzasMvpInicializar: api.inicializar, finanzasMvpEjecutar: api.ejecutar })) {
+   exports[nombre] = onCall({ region: 'southamerica-west1', timeoutSeconds: 60 }, async request => {
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_transicion_demo.test.js" b/functions/test/finanzas_transicion_demo.test.js
+index 585b425..c528a7e 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_transicion_demo.test.js"
++++ b/functions/test/finanzas_transicion_demo.test.js
+@@ -1,9 +1,11 @@
+ 'use strict';
+ const test = require('node:test');
+ const assert = require('node:assert/strict');
+-const { verificarEntorno, verificarAntesDeArranque } = require('../contabilidad_demo/entorno');
+-const { crearTransicionDemo, ESCRITORES } = require('../contabilidad_demo/transicion');
+-const { verificarFuentes } = require('../contabilidad_demo/fuentes');
++// Estas guardas prueban el runtime histórico aislado, sin acreditar el actual.
++const historico = require('./soporte/runtime_historico').cargarHistorico();
++const { verificarEntorno, verificarAntesDeArranque } = historico.cargar('contabilidad_demo/entorno');
++const { crearTransicionDemo, ESCRITORES } = historico.cargar('contabilidad_demo/transicion');
++const { verificarFuentes } = historico.cargar('contabilidad_demo/fuentes');
+ const env = () => ({ GCLOUD_PROJECT: 'demo-fesync', FIRESTORE_EMULATOR_HOST: '127.0.0.1:8088' });
+ const db = () => ({ projectId: 'demo-fesync', _settings: { servicePath: '127.0.0.1', port: 8088, ssl: false } });
+ const custodia = () => ({ emuladorExclusivo: true, administrador: true, escritores: [...ESCRITORES] });
+@@ -34,7 +36,7 @@ for (const c of [null, {}, { ...custodia(), administrador: false }, { ...custodi
+   { ...custodia(), escritores: [...ESCRITORES, 'desconocido'] }]) test('No escribir sin precondiciones de custodia: ' + JSON.stringify(c), () => {
+   assert.throws(() => crearTransicionDemo({ db: db(), env: env(), custodia: c }));
+ });
+-test('Inventario revisado coincide con fuentes actuales, sin modificar archivos', () => {
++test('Inventario historico coincide con su fixture de fuentes exactas, sin modificar archivos', () => {
+   assert.match(verificarFuentes(), /^[a-f0-9]{64}$/);
+ });
+ test('Alterar el inventario original impide acreditar su identidad historica', t => {
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_v1_incremental\\adaptador.js" b/functions/test/finanzas_v1_incremental/adaptador.js
+index cccaa91..1071bf0 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_v1_incremental\\adaptador.js"
++++ b/functions/test/finanzas_v1_incremental/adaptador.js
+@@ -1,151 +1,3 @@
+ 'use strict';
+-// Implementación V1 aislada: nunca se exporta desde Functions normales.
+-const { isDeepStrictEqual } = require('node:util');
+-const { exigir, registroExacto, ErrorContable, validarFechaYPeriodo } = require('../../finanzas_core/dinero');
+-const { validarConfiguracionContable, exigirPeriodoContableAbierto } = require('../../finanzas_core/configuracion');
+-const { validarCuenta, validarEstadoCuenta, validarAperturaCuenta } = require('../../finanzas_core/cuentas');
+-const { crearApertura } = require('../../finanzas_core/asientos');
+-const { prepararIngreso, prepararGasto } = require('../../finanzas_core/operaciones');
+-const { prepararTransferencia, prepararReversion, prepararAjuste } = require('../../finanzas_core/correcciones');
+-const { proyectarMovimiento } = require('../../finanzas_core/proyecciones');
+-const c = require('./comun');
+-const permisos = { ingreso: 'registrarIngresosGastos', gasto: 'registrarIngresosGastos', transferencia: 'transferir',
+-  reversion: 'anularMovimientos', ajuste: 'registrarAjustes', apertura: 'registrarAjustes' };
+-const camposEstado = ['iglesiaId', 'cuentaId', 'huboMovimientos', 'saldoMinor', 'solicitudesInciertas', 'aperturaRegistrada'];
+-const seleccionar = (v, campos) => Object.fromEntries(campos.map(k => [k, v[k]]));
+-function preparar(entrada) {
+-  registroExacto(entrada, ['auth', 'operacion', 'solicitud']); registroExacto(entrada.auth, ['uid']); c.id(entrada.auth.uid);
+-  exigir(Object.hasOwn(permisos, entrada.operacion), 'OPERACION_INCREMENTAL_NO_IMPLEMENTADA');
+-  const s = entrada.solicitud, op = entrada.operacion;
+-  registroExacto(s, ['versionEsquema', 'solicitudId', 'iglesiaId', 'periodoId', 'precondiciones', 'fechaContable',
+-    ...(op === 'transferencia' ? ['origenId', 'destinoId', 'montoMinor'] : op === 'reversion' ? ['originalId', 'motivo', 'referenciaAuditoria'] :
+-      ['cuentaId', ...(op === 'ajuste' ? ['deltaMinor', 'motivo', 'referenciaAuditoria'] : ['montoMinor']),
+-        ...(['ingreso', 'gasto'].includes(op) ? ['categoriaId'] : [])])],
+-  ['ingreso', 'gasto', 'apertura'].includes(op) ? ['descripcion', ...(op === 'ingreso' ? ['aportante'] : [])] : []);
+-  exigir(s.versionEsquema === 1 && typeof s.solicitudId === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(s.solicitudId), 'SOLICITUD_ID_INVALIDA');
+-  c.base(s.iglesiaId); validarFechaYPeriodo(s.fechaContable, s.periodoId);
+-  const copia = JSON.parse(c.canon({ uid: entrada.auth.uid, operacion: op, solicitud: s }));
+-  exigir(Buffer.byteLength(c.canon(copia)) <= 16384, 'SOLICITUD_DEMASIADO_GRANDE');
+-  return { ...copia, huella: c.hash(copia), movimientoId: c.hash([`finanzas-${op}-v1`, copia.uid, s.iglesiaId, s.solicitudId]) };
+-}
+-function crearAdaptadorIncremental({ db, FieldValue }) {
+-  async function ejecutar(entrada) {
+-    if (['crearCuenta', 'crearCategoria'].includes(entrada.operacion)) {
+-      return require('./catalogos').ejecutarCatalogo({ db, FieldValue, entrada });
+-    }
+-    c.entorno(); const e = preparar(entrada), s = e.solicitud, b = c.base(s.iglesiaId), op = e.operacion;
+-    const ref = x => db.doc(`${b}/${x}`), reciboRef = db.doc(`operaciones_financieras/${e.uid}/solicitudes/${s.solicitudId}`);
+-    try { return await db.runTransaction(async tx => {
+-      const recibo = await tx.get(reciboRef);
+-      if (recibo.exists) {
+-        const r = recibo.data(), m = await tx.get(ref(`finanzas_movimientos/${e.movimientoId}`));
+-        exigir(r.estado === 'confirmado' && r.versionEsquema === 1 && r.uid === e.uid && r.iglesiaId === s.iglesiaId &&
+-          r.operacion === op && r.huella === e.huella && r.movimientoId === e.movimientoId &&
+-          r.solicitudId === s.solicitudId && r.pertenenciaId === s.precondiciones.pertenenciaId &&
+-          m.exists && m.data().huella === e.huella && m.data().secuencia === r.secuencia &&
+-          m.data().responsable.uid === e.uid && m.data().responsable.pertenenciaId === r.pertenenciaId,
+-        'RECIBO_NO_COINCIDE');
+-        return { estado: 'CONFIRMADA', historica: true, movimientoId: e.movimientoId, secuencia: r.secuencia };
+-      }
+-      const ps = await tx.get(ref('finanzas_control/protocolo')); c.protocolo(ps.data(), s.iglesiaId);
+-      const auth = await c.autorizar(db, tx, e.uid, s.iglesiaId, permisos[op], s.precondiciones);
+-      const [configS, periodoS, controlS, incrementalS, resumenS, auditoriaS, movimientoS] = await Promise.all([
+-        'finanzas_config/contabilidad', 'finanzas_control/periodo', 'finanzas_control/libro', 'finanzas_control/incremental_v1',
+-        `finanzas_resumenes/${s.periodoId}`, `finanzas_auditoria/${e.movimientoId}`, `finanzas_movimientos/${e.movimientoId}`
+-      ].map(x => tx.get(ref(x))));
+-      exigir(configS.exists && periodoS.exists && controlS.exists, 'DOCUMENTO_REQUERIDO');
+-      const cfg = validarConfiguracionContable(configS.data(), s.iglesiaId), control = controlS.data();
+-      const v = c.verificar(incrementalS.data(), control, s.iglesiaId);
+-      exigir(v.proyeccion.periodo.periodoId === s.periodoId && c.canon(v.proyeccion.configuracion) === c.canon(c.configDinero(cfg)), 'PERIODO_PROYECCION_DISTINTO');
+-      exigir(resumenS.exists && resumenS.data().ultimaSecuencia === control.ultimaSecuencia &&
+-        isDeepStrictEqual(resumenS.data().datos, c.resumen(v)), 'RESUMEN_PROYECCION_DIVERGENTE');
+-      exigir(!auditoriaS.exists && !movimientoS.exists, 'MOVIMIENTO_SIN_RECIBO');
+-      const estadoLibro = { iglesiaId: s.iglesiaId, huboMovimientos: control.huboMovimientos, periodosAbiertos: periodoS.data().periodosAbiertos };
+-      exigirPeriodoContableAbierto(estadoLibro, s.iglesiaId, s.periodoId);
+-      let originalS, marcaS;
+-      if (op === 'reversion') {
+-        c.id(s.originalId); [originalS, marcaS] = await Promise.all([
+-          tx.get(ref(`finanzas_movimientos/${s.originalId}`)), tx.get(ref(`finanzas_reversiones/${s.originalId}`))]);
+-        exigir(originalS.exists && !marcaS.exists, 'ORIGINAL_YA_REVERTIDO_O_CONTROL_MODIFICADO');
+-      }
+-      const ids = op === 'transferencia' ? [s.origenId, s.destinoId] : op === 'reversion' ?
+-        originalS.data().movimiento.asientos.map(a => a.cuentaId) : [s.cuentaId];
+-      exigir(ids.length >= 1 && ids.length <= 2 && new Set(ids).size === ids.length, 'CUENTAS_CORRECCION_INVALIDAS');
+-      const seleccionadas = [];
+-      for (const cuentaId of ids) {
+-        c.id(cuentaId); const [cs, ss] = await Promise.all([
+-          tx.get(ref(`finanzas_cuentas/${cuentaId}`)), tx.get(ref(`finanzas_saldos/${cuentaId}`))]);
+-        exigir(cs.exists && ss.exists && v.cuentas[cuentaId], 'DESTINO_NO_EXISTE');
+-        const cuenta = validarCuenta(cs.data().cuenta, s.iglesiaId);
+-        exigir(cuenta.id === cuentaId, 'CUENTA_DOCUMENTO_DISTINTO');
+-        const estado = validarEstadoCuenta(seleccionar(ss.data(), camposEstado), cuenta), p = v.cuentas[cuentaId];
+-        exigir(estado.saldoMinor === p.saldoMinor && ss.data().ultimaSecuencia === p.revision &&
+-          estado.huboMovimientos === (p.revision > 0) && estado.aperturaRegistrada === Boolean(v.aperturas[cuentaId]), 'SALDO_PROYECCION_DIVERGENTE');
+-        exigir(!v.aperturas[cuentaId] || s.fechaContable >= v.aperturas[cuentaId].fechaContable, 'APERTURA_NO_INICIAL');
+-        seleccionadas.push({ cuenta, estado, version: c.ver(cs) });
+-      }
+-      const versiones = { iglesia: c.ver(auth.iglesia), configuracion: c.ver(configS), controlPeriodo: c.ver(periodoS) };
+-      let plan, aperturaS;
+-      const solicitud = { ...s, idMovimiento: e.movimientoId };
+-      if (['ingreso', 'gasto'].includes(op)) {
+-        c.id(s.categoriaId); const categoriaS = await tx.get(ref(`finanzas_categorias/${s.categoriaId}`));
+-        exigir(categoriaS.exists && categoriaS.data().categoria.id === s.categoriaId, 'DESTINO_NO_EXISTE');
+-        plan = (op === 'ingreso' ? prepararIngreso : prepararGasto)({ solicitud, contexto: {
+-          autorizacion: auth.contexto, configuracion: cfg, estadoLibro, cuenta: seleccionadas[0].cuenta,
+-          estadoCuenta: seleccionadas[0].estado, categoria: categoriaS.data().categoria,
+-          versiones: { ...versiones, cuenta: seleccionadas[0].version, categoria: c.ver(categoriaS) } } });
+-      } else if (op === 'apertura') {
+-        registroExacto(s.precondiciones, ['pertenenciaId', 'acceso', 'iglesia', 'configuracion', 'controlPeriodo', 'cuenta']);
+-        for (const [k, version] of Object.entries({ ...versiones, cuenta: seleccionadas[0].version })) exigir(s.precondiciones[k] === version, 'CONTEXTO_OPERACION_MODIFICADO');
+-        aperturaS = await tx.get(ref(`finanzas_aperturas/${s.cuentaId}`)); exigir(!aperturaS.exists, 'APERTURA_DUPLICADA');
+-        const movimiento = crearApertura({ id: e.movimientoId, cuenta: seleccionar(seleccionadas[0].cuenta, ['id', 'moneda', 'escala']),
+-          montoMinor: s.montoMinor, fechaContable: s.fechaContable, periodoId: s.periodoId, configuracion: c.configDinero(cfg) });
+-        validarAperturaCuenta({ iglesiaId: s.iglesiaId, cuenta: seleccionadas[0].cuenta, estadoCuenta: seleccionadas[0].estado, movimiento });
+-        plan = { movimiento, clasificacion: { cuentaId: s.cuentaId, categoriaId: null, naturaleza: 'patrimonial', tipoIngreso: null },
+-          responsable: { uid: e.uid, pertenenciaId: auth.actor.data().pertenenciaId }, descripcion: s.descripcion ?? null,
+-          privado: { aportante: null }, precondiciones: s.precondiciones };
+-      } else {
+-        plan = ({ transferencia: prepararTransferencia, reversion: prepararReversion, ajuste: prepararAjuste })[op]({ solicitud,
+-          contexto: { autorizacion: auth.contexto, configuracion: cfg, estadoLibro, versiones, cuentas: seleccionadas,
+-            ...(op === 'reversion' ? { original: { iglesiaId: originalS.data().iglesiaId, estado: originalS.data().estado,
+-              version: c.ver(originalS), movimiento: originalS.data().movimiento, clasificacion: originalS.data().clasificacion,
+-              reversion: { version: null, movimientoId: null } } } : {}) } });
+-      }
+-      const siguiente = control.ultimaSecuencia + 1;
+-      const proyeccion = proyectarMovimiento({ estadoAnterior: v.proyeccion,
+-        cuentasAnteriores: ids.map(id => v.cuentas[id]), movimiento: plan.movimiento,
+-        original: op === 'reversion' ? { movimiento: originalS.data().movimiento, revision: originalS.data().secuencia, reversionId: null } : null,
+-        aplicacion: { revisionAnterior: control.ultimaSecuencia, revisionNueva: siguiente, movimientoId: e.movimientoId } });
+-      const nuevo = { ...v, proyeccion: proyeccion.estado, cuentas: { ...v.cuentas }, aperturas: { ...v.aperturas } };
+-      for (const saldo of proyeccion.cuentas) nuevo.cuentas[saldo.cuentaId] = saldo;
+-      if (op === 'apertura') nuevo.aperturas[s.cuentaId] = { id: e.movimientoId, fechaContable: s.fechaContable, secuencia: siguiente };
+-      const timestamp = FieldValue.serverTimestamp();
+-      // Barrera: todas las lecturas y validaciones preceden a cualquier escritura.
+-      tx.create(ref(`finanzas_movimientos/${e.movimientoId}`), { versionEsquema: 1, iglesiaId: s.iglesiaId,
+-        estado: 'confirmado', secuencia: siguiente, movimiento: plan.movimiento, clasificacion: plan.clasificacion,
+-        responsable: plan.responsable, solicitudId: s.solicitudId, huella: e.huella,
+-        descripcion: plan.descripcion ?? null, privado: plan.privado ?? { aportante: null,
+-          ...(op === 'reversion' || op === 'ajuste' ? { motivo: plan.motivo, referenciaAuditoria: plan.referenciaAuditoria } : {}) },
+-        precondiciones: plan.precondiciones, fechaCreacion: timestamp });
+-      for (const saldo of proyeccion.cuentas) tx.update(ref(`finanzas_saldos/${saldo.cuentaId}`), {
+-        saldoMinor: saldo.saldoMinor, huboMovimientos: true, ultimaSecuencia: siguiente,
+-        ...(op === 'apertura' ? { aperturaRegistrada: true } : {}), fechaActualizacion: timestamp });
+-      if (op === 'reversion') tx.create(ref(`finanzas_reversiones/${s.originalId}`), { versionEsquema: 1,
+-        iglesiaId: s.iglesiaId, ...plan.controlReversion, secuencia: siguiente, fechaCreacion: timestamp });
+-      if (op === 'apertura') tx.create(ref(`finanzas_aperturas/${s.cuentaId}`), { versionEsquema: 1,
+-        iglesiaId: s.iglesiaId, cuentaId: s.cuentaId, movimientoId: e.movimientoId, secuencia: siguiente, fechaCreacion: timestamp });
+-      tx.update(ref('finanzas_control/incremental_v1'), c.sellar(nuevo));
+-      tx.update(ref('finanzas_control/libro'), { ultimaSecuencia: siguiente, huboMovimientos: true, fechaActualizacion: timestamp });
+-      tx.update(ref(`finanzas_resumenes/${s.periodoId}`), { datos: c.resumen(nuevo), ultimaSecuencia: siguiente, fechaActualizacion: timestamp });
+-      tx.create(ref(`finanzas_auditoria/${e.movimientoId}`), { versionEsquema: 1, iglesiaId: s.iglesiaId,
+-        evento: `${op}_registrado`, responsable: plan.responsable, solicitudId: s.solicitudId,
+-        movimientoId: e.movimientoId, secuencia: siguiente, fechaCreacion: timestamp });
+-      tx.create(reciboRef, { versionEsquema: 1, uid: e.uid, operacion: op, iglesiaId: s.iglesiaId,
+-        solicitudId: s.solicitudId, huella: e.huella, pertenenciaId: plan.responsable.pertenenciaId,
+-        movimientoId: e.movimientoId, estado: 'confirmado', secuencia: siguiente, fechaCreacion: timestamp });
+-      return { estado: 'CONFIRMADA', historica: false, movimientoId: e.movimientoId, secuencia: siguiente };
+-    }); } catch (error) { if (error instanceof ErrorContable) throw error; throw new ErrorContable('RESULTADO_INCIERTO'); }
+-  }
+-  return { ejecutar };
+-}
+-module.exports = { crearAdaptadorIncremental };
++// Compatibilidad: reexporta la unica implementacion compartida.
++module.exports = require('../../finanzas_v1/adaptador');
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_v1_incremental\\api.js" b/functions/test/finanzas_v1_incremental/api.js
+index 08f9463..b01a1af 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_v1_incremental\\api.js"
++++ b/functions/test/finanzas_v1_incremental/api.js
+@@ -1,67 +1,3 @@
+ 'use strict';
+-const { exigir, registroExacto, ErrorContable } = require('../../finanzas_core/dinero');
+-const { crearApi } = require('../finanzas_mvp_runtime/api');
+-const { crearAdaptadorIncremental } = require('./adaptador');
+-const c = require('./comun');
+-function cursorLeer(texto) {
+-  exigir(typeof texto === 'string' && texto.length <= 1200, 'CURSOR_INVALIDO');
+-  let v; try { v = JSON.parse(Buffer.from(texto, 'base64url').toString('utf8')); } catch { exigir(false, 'CURSOR_INVALIDO'); }
+-  registroExacto(v, ['version', 'iglesiaId', 'uid', 'pertenenciaId', 'corte', 'ultimo', 'limite']);
+-  exigir(v.version === 1 && Number.isSafeInteger(v.corte) && Number.isSafeInteger(v.ultimo) && v.ultimo > 0 &&
+-    v.ultimo <= v.corte, 'CURSOR_INVALIDO'); return v;
+-}
+-function crearApiIncremental({ db, FieldValue, HttpsError }) {
+-  const adaptador = crearAdaptadorIncremental({ db, FieldValue });
+-  const api = crearApi({ db, FieldValue, HttpsError, adaptador });
+-  async function consultar(request) {
+-    c.entorno();
+-    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicia sesión.');
+-    try {
+-      const uid = request.auth.uid, data = request.data; registroExacto(data, [], ['contexto', 'limite', 'cursor', 'historialPaginado']);
+-      exigir(data.historialPaginado === true, 'CLIENTE_HISTORIAL_PAGINADO_REQUERIDO');
+-      const limite = data.limite ?? 50; exigir(Number.isInteger(limite) && limite >= 1 && limite <= 50, 'LIMITE_PAGINA_INVALIDO');
+-      const cursor = data.cursor == null ? null : cursorLeer(data.cursor);
+-      return await db.runTransaction(async tx => {
+-        const perfil = await tx.get(db.doc(`usuarios_globales/${uid}`));
+-        exigir(perfil.exists, 'CONTABILIDAD_NO_AUTORIZADA'); const iglesiaId = perfil.data().iglesiaId, b = c.base(iglesiaId);
+-        const auth = await c.autorizar(db, tx, uid, iglesiaId);
+-        const contexto = { iglesiaId, pertenenciaId: auth.actor.data().pertenenciaId };
+-        if (data.contexto) exigir(c.canon(data.contexto) === c.canon(contexto), 'PERTENENCIA_ANTERIOR');
+-        const [p, control, estado] = await Promise.all(['finanzas_control/protocolo', 'finanzas_control/libro',
+-          'finanzas_control/incremental_v1'].map(r => tx.get(db.doc(`${b}/${r}`))));
+-        c.protocolo(p.data(), iglesiaId); const v = c.verificar(estado.data(), control.data(), iglesiaId);
+-        if (cursor) exigir(cursor.iglesiaId === iglesiaId && cursor.uid === uid &&
+-          cursor.pertenenciaId === contexto.pertenenciaId && cursor.limite === limite &&
+-          cursor.corte <= control.data().ultimaSecuencia, 'CURSOR_AJENO_O_INVALIDO');
+-        const corte = cursor?.corte ?? control.data().ultimaSecuencia;
+-        let q = db.collection(`${b}/finanzas_movimientos`).where('secuencia', '<=', corte).orderBy('secuencia', 'desc').limit(limite + 1);
+-        if (cursor) q = q.startAfter(cursor.ultimo);
+-        const [historia, cuentas, categorias] = await Promise.all([tx.get(q),
+-          tx.get(db.collection(`${b}/finanzas_cuentas`).limit(51)), tx.get(db.collection(`${b}/finanzas_categorias`).limit(51))]);
+-        exigir(cuentas.size <= 50 && categorias.size <= 50, 'LIMITE_LIBRO_EXCEDIDO');
+-        let esperado = cursor ? cursor.ultimo - 1 : corte;
+-        for (const s of historia.docs) {
+-          const d = s.data(); exigir(d.secuencia === esperado-- && d.iglesiaId === iglesiaId &&
+-            d.estado === 'confirmado' && d.movimiento.id === s.id, 'HISTORIAL_INCOMPLETO');
+-        }
+-        exigir(historia.size === limite + 1 || esperado === 0, 'HISTORIAL_INCOMPLETO');
+-        const pagina = historia.docs.slice(0, limite), hayMas = historia.size > limite;
+-        const siguiente = hayMas ? Buffer.from(JSON.stringify({ version: 1, iglesiaId, uid, pertenenciaId: contexto.pertenenciaId,
+-          corte, ultimo: pagina.at(-1).data().secuencia, limite })).toString('base64url') : null;
+-        return { contexto, permisos: auth.permisos, configurada: true,
+-          versionConsulta: 'v1_incremental_paginado', protocolo: 'operativo_v1', periodoId: v.proyeccion.periodo.periodoId,
+-          cuentas: cuentas.docs.map(s => s.data().cuenta), categorias: categorias.docs.map(s => s.data().categoria),
+-          saldoTotalMinor: v.proyeccion.acumulado.saldoFinalMinor,
+-          saldos: Object.fromEntries(Object.values(v.cuentas).map(s => [s.cuentaId, s.saldoMinor])), resumen: c.resumen(v),
+-          movimientos: pagina.map(s => { const d = s.data(); return { ...d.movimiento, secuencia: d.secuencia,
+-            clasificacion: d.clasificacion, descripcion: d.descripcion ?? null }; }).reverse(),
+-          historial: { corte, limite, cursorSiguiente: siguiente, hayMas, orden: 'secuencia_desc' } };
+-      });
+-    } catch (e) {
+-      if (e instanceof ErrorContable) throw new HttpsError(e.codigo === 'CONTABILIDAD_NO_AUTORIZADA' ? 'permission-denied' : 'failed-precondition', e.codigo);
+-      throw new HttpsError('unavailable', 'No se pudo consultar el historial.');
+-    }
+-  }
+-  return { ...api, consultar };
+-}
+-module.exports = { crearApiIncremental };
++// Compatibilidad: reexporta la unica implementacion compartida.
++module.exports = require('../../finanzas_v1/api');
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_v1_incremental\\catalogos.js" b/functions/test/finanzas_v1_incremental/catalogos.js
+index 431703f..c26d24e 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_v1_incremental\\catalogos.js"
++++ b/functions/test/finanzas_v1_incremental/catalogos.js
+@@ -1,75 +1,3 @@
+ 'use strict';
+-const { isDeepStrictEqual } = require('node:util');
+-const { exigir, registroExacto } = require('../../finanzas_core/dinero');
+-const { crearCuenta } = require('../../finanzas_core/cuentas');
+-const { crearCategoria } = require('../../finanzas_core/categorias');
+-const { crearSaldoInicial } = require('../../finanzas_core/proyecciones');
+-const { exigirPeriodoContableAbierto, validarConfiguracionContable } = require('../../finanzas_core/configuracion');
+-const c = require('./comun');
+-async function ejecutarCatalogo({ db, FieldValue, entrada }) {
+-  c.entorno(); registroExacto(entrada, ['auth', 'operacion', 'solicitud']); registroExacto(entrada.auth, ['uid']);
+-  const esCuenta = entrada.operacion === 'crearCuenta', campo = esCuenta ? 'cuenta' : 'categoria';
+-  const copia = JSON.parse(c.canon({ uid: entrada.auth.uid, operacion: entrada.operacion, solicitud: entrada.solicitud }));
+-  const s = copia.solicitud; c.id(copia.uid); c.base(s.iglesiaId);
+-  registroExacto(s, ['versionEsquema', 'solicitudId', 'iglesiaId', 'periodoId', 'precondiciones', campo]);
+-  exigir(s.versionEsquema === 1 && typeof s.solicitudId === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(s.solicitudId) &&
+-    Buffer.byteLength(c.canon(copia)) <= 16384, 'SOLICITUD_INVALIDA');
+-  registroExacto(s[campo], esCuenta ? ['codigo', 'nombre', 'tipo'] : ['codigo', 'nombre', 'naturaleza', 'tipoIngreso']);
+-  const huella = c.hash(copia), entidadId = c.hash([`finanzas-${entrada.operacion}-v1`, copia.uid, s.iglesiaId, s.solicitudId]);
+-  const b = c.base(s.iglesiaId), ref = r => db.doc(`${b}/${r}`), coleccion = esCuenta ? 'cuentas' : 'categorias';
+-  const reciboRef = db.doc(`operaciones_financieras/${copia.uid}/solicitudes/${s.solicitudId}`), entidadRef = ref(`finanzas_${coleccion}/${entidadId}`);
+-  return db.runTransaction(async tx => {
+-    const recibo = await tx.get(reciboRef);
+-    if (recibo.exists) {
+-      const entidad = await tx.get(entidadRef), r = recibo.data();
+-      exigir(r.uid === copia.uid && r.huella === huella && r.estado === 'confirmado' && r.iglesiaId === s.iglesiaId &&
+-        r.solicitudId === s.solicitudId && r.operacion === entrada.operacion && r.movimientoId === entidadId &&
+-        r.pertenenciaId === s.precondiciones.pertenenciaId && entidad.exists && entidad.data().huella === huella &&
+-        entidad.data()[campo].id === entidadId && entidad.data().responsable.uid === copia.uid, 'RECIBO_NO_COINCIDE');
+-      return { estado: 'CONFIRMADA', historica: true, [esCuenta ? 'cuentaId' : 'categoriaId']: entidadId };
+-    }
+-    const protocolo = await tx.get(ref('finanzas_control/protocolo')); c.protocolo(protocolo.data(), s.iglesiaId);
+-    const auth = await c.autorizar(db, tx, copia.uid, s.iglesiaId, 'administrarCatalogos', s.precondiciones);
+-    const [config, periodo, control, estado, reserva, auditoria, entidadS, resumenS] = await Promise.all([
+-      'finanzas_config/contabilidad', 'finanzas_control/periodo', 'finanzas_control/libro', 'finanzas_control/incremental_v1',
+-      `finanzas_reservas_${coleccion}/${s[campo].codigo}`, `finanzas_auditoria/${entidadId}`, `finanzas_${coleccion}/${entidadId}`,
+-      `finanzas_resumenes/${s.periodoId}`].map(r => tx.get(ref(r))));
+-    const cfg = validarConfiguracionContable(config.data(), s.iglesiaId), v = c.verificar(estado.data(), control.data(), s.iglesiaId);
+-    exigir(v.proyeccion.periodo.periodoId === s.periodoId && resumenS.exists &&
+-      isDeepStrictEqual(resumenS.data().datos, c.resumen(v)) && resumenS.data().ultimaSecuencia === control.data().ultimaSecuencia, 'RESUMEN_PROYECCION_DIVERGENTE');
+-    registroExacto(s.precondiciones, ['pertenenciaId', 'acceso', 'iglesia', 'configuracion', 'controlPeriodo']);
+-    for (const [k, snap] of [['iglesia', auth.iglesia], ['configuracion', config], ['controlPeriodo', periodo]]) exigir(s.precondiciones[k] === c.ver(snap), 'CONTEXTO_OPERACION_MODIFICADO');
+-    exigirPeriodoContableAbierto({ iglesiaId: s.iglesiaId, huboMovimientos: control.data().huboMovimientos,
+-      periodosAbiertos: periodo.data().periodosAbiertos }, s.iglesiaId, s.periodoId);
+-    c.id(s[campo].codigo); exigir(!reserva.exists && !auditoria.exists && !entidadS.exists, 'CODIGO_RESERVADO');
+-    const catalogo = await tx.get(db.collection(`${b}/finanzas_${coleccion}`).limit(51));
+-    exigir(catalogo.size < 50, 'LIMITE_LIBRO_EXCEDIDO');
+-    const entidad = esCuenta ? crearCuenta({ iglesiaId: s.iglesiaId, catalogo: catalogo.docs.map(d => d.data().cuenta),
+-      cuenta: { ...s.cuenta, versionEsquema: 1, id: entidadId, iglesiaId: s.iglesiaId, moneda: cfg.moneda, escala: cfg.escala, estado: 'activa' } }) :
+-      crearCategoria({ iglesiaId: s.iglesiaId, catalogo: catalogo.docs.map(d => d.data().categoria),
+-        categoria: { ...s.categoria, versionEsquema: 1, id: entidadId, iglesiaId: s.iglesiaId, estado: 'activa' } });
+-    let resumenes;
+-    if (esCuenta) { resumenes = await tx.get(db.collection(`${b}/finanzas_resumenes`).limit(25)); exigir(resumenes.size <= 24, 'LIMITE_MANTENIMIENTO_EXCEDIDO'); }
+-    const responsable = { uid: copia.uid, pertenenciaId: auth.actor.data().pertenenciaId }, fecha = FieldValue.serverTimestamp();
+-    tx.create(entidadRef, { [campo]: entidad, huella, solicitudId: s.solicitudId, responsable, fechaCreacion: fecha });
+-    tx.create(reserva.ref, { versionEsquema: 1, iglesiaId: s.iglesiaId, codigo: entidad.codigo, entidadId, fechaCreacion: fecha });
+-    if (esCuenta) {
+-      const nuevo = { ...v, cuentas: { ...v.cuentas, [entidadId]: crearSaldoInicial({ iglesiaId: s.iglesiaId, cuentaId: entidadId, periodoId: s.periodoId }) } };
+-      tx.create(ref(`finanzas_saldos/${entidadId}`), { versionEsquema: 1, iglesiaId: s.iglesiaId, cuentaId: entidadId,
+-        saldoMinor: 0, huboMovimientos: false, aperturaRegistrada: false, solicitudesInciertas: 0, ultimaSecuencia: 0, fechaActualizacion: fecha });
+-      tx.update(estado.ref, c.sellar(nuevo));
+-      // Una cuenta nueva extiende mapas con cero; conserva importes y secuencias cerrados.
+-      for (const r of resumenes.docs) tx.update(r.ref, { datos: { ...r.data().datos,
+-        saldoInicialPorCuenta: { ...r.data().datos.saldoInicialPorCuenta, [entidadId]: 0 },
+-        saldoFinalPorCuenta: { ...r.data().datos.saldoFinalPorCuenta, [entidadId]: 0 } } });
+-    }
+-    tx.update(control.ref, { fechaActualizacion: fecha });
+-    tx.create(auditoria.ref, { versionEsquema: 1, iglesiaId: s.iglesiaId, evento: entrada.operacion,
+-      responsable, entidadId, solicitudId: s.solicitudId, fechaCreacion: fecha });
+-    tx.create(reciboRef, { versionEsquema: 1, uid: copia.uid, operacion: entrada.operacion, iglesiaId: s.iglesiaId,
+-      solicitudId: s.solicitudId, huella, pertenenciaId: responsable.pertenenciaId, movimientoId: entidadId,
+-      estado: 'confirmado', secuencia: null, fechaCreacion: fecha });
+-    return { estado: 'CONFIRMADA', historica: false, [esCuenta ? 'cuentaId' : 'categoriaId']: entidadId };
+-  });
+-}
+-module.exports = { ejecutarCatalogo };
++// Compatibilidad: reexporta la unica implementacion compartida.
++module.exports = require('../../finanzas_v1/catalogos');
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_v1_incremental\\comun.js" b/functions/test/finanzas_v1_incremental/comun.js
+index 24e300b..d5478c8 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_v1_incremental\\comun.js"
++++ b/functions/test/finanzas_v1_incremental/comun.js
+@@ -1,57 +1,3 @@
+ 'use strict';
+-const { createHash } = require('node:crypto');
+-const { exigir, registroExacto } = require('../../finanzas_core/dinero');
+-const { exigirPermisoContable } = require('../../finanzas_core/autorizacion');
+-const { entorno } = require('../finanzas_mvp_runtime/api');
+-const canon = v => v === null || typeof v !== 'object' ? JSON.stringify(v) : Array.isArray(v) ?
+-  `[${v.map(canon).join(',')}]` : `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}`;
+-const hash = v => createHash('sha256').update(canon(v)).digest('hex');
+-const ver = s => { exigir(s.exists && s.updateTime, 'DOCUMENTO_REQUERIDO'); return `${s.updateTime.seconds}:${s.updateTime.nanoseconds}`; };
+-const id = v => exigir(typeof v === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(v), 'ID_INVALIDO');
+-const base = iglesiaId => { id(iglesiaId); return `iglesias/${iglesiaId}`; };
+-const configDinero = c => ({ moneda: c.moneda, escala: c.escala, zonaHoraria: c.zonaHoraria });
+-function protocolo(d, iglesiaId, pausado = false) {
+-  registroExacto(d, ['versionProtocolo', 'iglesiaId', 'epoca', 'estado']);
+-  exigir(d.versionProtocolo === 1 && d.iglesiaId === iglesiaId &&
+-    (pausado ? [1, 2].includes(d.epoca) : d.epoca === 2) &&
+-    d.estado === (pausado ? 'bloqueado' : 'operativo_v1'), 'PROTOCOLO_INCREMENTAL_BLOQUEADO');
+-}
+-async function autorizar(db, tx, uid, iglesiaId, permiso = 'leer', precondiciones = null) {
+-  id(uid); const b = base(iglesiaId);
+-  const [actor, iglesia, acceso] = await Promise.all([
+-    tx.get(db.doc(`usuarios_globales/${uid}`)), tx.get(db.doc(b)), tx.get(db.doc(`${b}/finanzas_config/acceso`))]);
+-  exigir(actor.exists && iglesia.exists && acceso.exists, 'CONTABILIDAD_NO_AUTORIZADA');
+-  id(iglesia.data().adminUid);
+-  const titular = iglesia.data().adminUid === uid ? actor : await tx.get(db.doc(`usuarios_globales/${iglesia.data().adminUid}`));
+-  const contexto = { auth: { uid }, iglesiaId, perfilActor: { id: uid, datos: actor.data() },
+-    iglesia: { id: iglesiaId, datos: iglesia.data() }, perfilTitular: { id: iglesia.data().adminUid, datos: titular.data() },
+-    acceso: { id: 'acceso', iglesiaId, version: ver(acceso), datos: acceso.data() },
+-    pertenenciaIdEsperada: precondiciones?.pertenenciaId ?? actor.data().pertenenciaId,
+-    versionAccesoEsperada: precondiciones?.acceso ?? ver(acceso) };
+-  const decision = exigirPermisoContable(contexto, permiso);
+-  return { actor, iglesia, acceso, contexto, permisos: decision.permisos };
+-}
+-function sellar(v) { return { ...v, sello: hash(v) }; }
+-function verificar(v, control, iglesiaId) {
+-  exigir(v && v.versionEsquema === 1 && v.iglesiaId === iglesiaId &&
+-    v.estadoVerificacion === 'VERIFICADA_INICIAL' && v.epoca === 2, 'PROYECCION_NO_VERIFICADA');
+-  const { sello, ...datos } = v;
+-  exigir(sello === hash(datos) && v.proyeccion.revision === control.ultimaSecuencia &&
+-    v.proyeccion.iglesiaId === iglesiaId && Number.isSafeInteger(control.ultimaSecuencia) && control.ultimaSecuencia >= 0 &&
+-    Number.isSafeInteger(v.verificacionInicial.corte) && v.verificacionInicial.corte >= 0 &&
+-    v.verificacionInicial.corte <= control.ultimaSecuencia &&
+-    /^[a-f0-9]{64}$/.test(v.verificacionInicial.reporteDigest) &&
+-    v.verificacionInicial.certificacionHistorica === false &&
+-    control.versionEsquema === 1 && control.iglesiaId === iglesiaId &&
+-    control.huboMovimientos === (control.ultimaSecuencia > 0) &&
+-    Object.keys(v.cuentas).length <= 50, 'PROYECCION_DIVERGENTE');
+-  for (const [id, saldo] of Object.entries(v.cuentas)) exigir(saldo.iglesiaId === iglesiaId && saldo.cuentaId === id &&
+-    saldo.periodoId === v.proyeccion.periodo.periodoId && saldo.revision <= control.ultimaSecuencia, 'PROYECCION_DIVERGENTE');
+-  return datos;
+-}
+-function resumen(v) {
+-  return { ...v.proyeccion.configuracion, ...v.proyeccion.periodo,
+-    saldoInicialPorCuenta: Object.fromEntries(Object.values(v.cuentas).map(c => [c.cuentaId, c.saldoInicialPeriodoMinor])),
+-    saldoFinalPorCuenta: Object.fromEntries(Object.values(v.cuentas).map(c => [c.cuentaId, c.saldoFinalPeriodoMinor])) };
+-}
+-module.exports = { entorno, canon, hash, ver, id, base, configDinero, protocolo, autorizar, sellar, verificar, resumen };
++// Compatibilidad: reexporta la unica implementacion compartida.
++module.exports = require('../../finanzas_v1/comun');
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_v1_incremental\\mantenimiento.js" b/functions/test/finanzas_v1_incremental/mantenimiento.js
+index c336ae3..40d47b9 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\functions\\test\\finanzas_v1_incremental\\mantenimiento.js"
++++ b/functions/test/finanzas_v1_incremental/mantenimiento.js
+@@ -1,164 +1,3 @@
+ 'use strict';
+-const { isDeepStrictEqual } = require('node:util');
+-const { FieldPath } = require('firebase-admin/firestore');
+-const { exigir, periodoValido } = require('../../finanzas_core/dinero');
+-const { validarCatalogoCuentas } = require('../../finanzas_core/cuentas');
+-const { validarCatalogoCategorias } = require('../../finanzas_core/categorias');
+-const { validarConfiguracionContable } = require('../../finanzas_core/configuracion');
+-const { conciliarPaginas } = require('../../finanzas_core/conciliacion');
+-const { crearProyeccionInicial, crearSaldoInicial, proyectarMovimiento } = require('../../finanzas_core/proyecciones');
+-const c = require('./comun');
+-function reconstruir(checkpoint, iglesiaId, configuracion, cuentas, periodoId) {
+-  let proyeccion = crearProyeccionInicial({ iglesiaId, configuracion, periodoId });
+-  const saldos = Object.fromEntries(cuentas.map(a => [a.id, crearSaldoInicial({ iglesiaId, cuentaId: a.id, periodoId })]));
+-  const anteriores = new Map(), aperturas = {};
+-  for (const d of checkpoint.documentos) {
+-    const original = d.movimiento.reversaDe === null ? null : anteriores.get(d.movimiento.reversaDe);
+-    const r = proyectarMovimiento({ estadoAnterior: proyeccion,
+-      cuentasAnteriores: d.movimiento.asientos.map(a => saldos[a.cuentaId]), movimiento: d.movimiento,
+-      original: original ? { movimiento: original.movimiento, revision: original.secuencia, reversionId: null } : null,
+-      aplicacion: { revisionAnterior: d.secuencia - 1, revisionNueva: d.secuencia, movimientoId: d.id } });
+-    proyeccion = r.estado; r.cuentas.forEach(a => { saldos[a.cuentaId] = a; }); anteriores.set(d.id, d);
+-    if (d.movimiento.clase === 'apertura') aperturas[d.movimiento.asientos[0].cuentaId] = {
+-      id: d.id, fechaContable: d.movimiento.fechaContable, secuencia: d.secuencia };
+-  }
+-  return { proyeccion, cuentas: saldos, aperturas };
+-}
+-function crearMantenimiento({ db, FieldValue }) {
+-  const ref = (iglesiaId, ruta) => db.doc(`${c.base(iglesiaId)}/${ruta}`);
+-  async function pausar(uid, iglesiaId) {
+-    c.entorno(); return db.runTransaction(async tx => {
+-      await c.autorizar(db, tx, uid, iglesiaId, 'administrarConfiguracion');
+-      const p = await tx.get(ref(iglesiaId, 'finanzas_control/protocolo')), d = p.data();
+-      exigir(d && d.versionProtocolo === 1 && d.iglesiaId === iglesiaId && [1, 2].includes(d.epoca) &&
+-        ['operativo_v1', 'bloqueado'].includes(d.estado), 'PROTOCOLO_INCREMENTAL_BLOQUEADO');
+-      tx.update(p.ref, { estado: 'bloqueado' }); return { estado: 'bloqueado', epoca: d.epoca };
+-    });
+-  }
+-  async function observar(tx, uid, iglesiaId) {
+-    const b = c.base(iglesiaId);
+-    await c.autorizar(db, tx, uid, iglesiaId, 'administrarConfiguracion');
+-    const [p, config, control, periodo, incremental, v2] = await Promise.all([
+-      'finanzas_control/protocolo', 'finanzas_config/contabilidad', 'finanzas_control/libro',
+-      'finanzas_control/periodo', 'finanzas_control/incremental_v1', 'finanzas_control/generacion_v2'
+-    ].map(r => tx.get(ref(iglesiaId, r))));
+-    c.protocolo(p.data(), iglesiaId, true); exigir(!v2.exists, 'LIBRO_V2_NO_ADMITIDO');
+-    const configuracion = c.configDinero(validarConfiguracionContable(config.data(), iglesiaId));
+-    const actual = periodo.data()?.periodosAbiertos;
+-    exigir(Array.isArray(actual) && actual.length === 1 && periodoValido(actual[0]), 'PERIODO_NO_ABIERTO');
+-    const qs = {};
+-    for (const [nombre, limite] of Object.entries({ finanzas_cuentas: 50, finanzas_categorias: 50,
+-      finanzas_saldos: 50, finanzas_resumenes: 24, finanzas_reversiones: 20000, finanzas_aperturas: 50 })) {
+-      qs[nombre] = await tx.get(db.collection(`${b}/${nombre}`).limit(limite + 1));
+-      exigir(qs[nombre].size <= limite, 'LIMITE_MANTENIMIENTO_EXCEDIDO');
+-    }
+-    const cuentas = validarCatalogoCuentas(qs.finanzas_cuentas.docs.map(s => {
+-      exigir(s.data().cuenta.id === s.id, 'CUENTA_DOCUMENTO_DISTINTO'); return s.data().cuenta;
+-    }), iglesiaId);
+-    validarCatalogoCategorias(qs.finanzas_categorias.docs.map(s => {
+-      exigir(s.data().categoria.id === s.id, 'CATEGORIA_DOCUMENTO_DISTINTO'); return s.data().categoria;
+-    }), iglesiaId);
+-    const paginas = []; let cursor = null, cantidad = 0, bytes = 0;
+-    while (true) {
+-      // Enumerar por ID también observa documentos sin secuencia. Ordenar solo
+-      // por secuencia ocultaría esos documentos y podría saltar empates de página.
+-      let q = db.collection(`${b}/finanzas_movimientos`).orderBy(FieldPath.documentId()).limit(250);
+-      if (cursor !== null) q = q.startAfter(cursor);
+-      const page = await tx.get(q); const docs = page.docs.map(s => ({ id: s.id, version: c.ver(s), datos: s.data() }));
+-      cantidad += docs.length; bytes += Buffer.byteLength(JSON.stringify(docs));
+-      exigir(cantidad <= 20000 && bytes <= 8 * 1024 * 1024, 'LIMITE_MANTENIMIENTO_EXCEDIDO');
+-      if (docs.length) paginas.push(docs);
+-      if (docs.length < 250) break;
+-      cursor = page.docs.at(-1);
+-    }
+-    const ordenados = paginas.flat().sort((a, b) => {
+-      const x = Number.isSafeInteger(a.datos.secuencia) ? a.datos.secuencia : Number.MAX_SAFE_INTEGER;
+-      const y = Number.isSafeInteger(b.datos.secuencia) ? b.datos.secuencia : Number.MAX_SAFE_INTEGER;
+-      return x - y || a.id.localeCompare(b.id);
+-    });
+-    const paginasOrdenadas = [];
+-    for (let i = 0; i < ordenados.length; i += 250) paginasOrdenadas.push(ordenados.slice(i, i + 250));
+-    const periodos = [...new Set([actual[0], ...paginas.flat().map(d => d.datos.movimiento.periodoId),
+-      ...qs.finanzas_resumenes.docs.map(s => s.id)])].sort();
+-    const observacion = { version: c.ver(control), datos: control.data() };
+-    const r = conciliarPaginas({ contexto: { iglesiaId, configuracion,
+-      cuentas: cuentas.map(a => ({ id: a.id, moneda: a.moneda, escala: a.escala })), periodos,
+-      controlInicial: observacion, modoLectura: 'PAUSA_EXTERNA_DECLARADA' },
+-      checkpoint: null, paginas: paginasOrdenadas, finDelListado: true, controlFinal: observacion,
+-      proyecciones: { corte: { secuencia: control.data().ultimaSecuencia, versionControl: c.ver(control) },
+-        saldos: qs.finanzas_saldos.docs.map(s => ({ cuentaId: s.id, datos: s.data() })),
+-        resumenes: qs.finanzas_resumenes.docs.map(s => ({ periodoId: s.id, datos: s.data() })),
+-        marcadores: qs.finanzas_reversiones.docs.map(s => ({ originalId: s.id, datos: s.data() })) } });
+-    const reconstruido = reconstruir(r.checkpoint, iglesiaId, configuracion, cuentas, actual[0]);
+-    const marcas = new Map(qs.finanzas_aperturas.docs.map(s => [s.id, s.data()]));
+-    const aperturasCorrectas = Object.entries(reconstruido.aperturas).every(([id, a]) => {
+-      const marca = marcas.get(id); return marca && marca.iglesiaId === iglesiaId && marca.cuentaId === id &&
+-        marca.movimientoId === a.id && marca.secuencia === a.secuencia;
+-    }) && marcas.size === Object.keys(reconstruido.aperturas).length;
+-    let incrementalCorrecto = !incremental.exists;
+-    if (incremental.exists) {
+-      try { const v = c.verificar(incremental.data(), control.data(), iglesiaId);
+-        incrementalCorrecto = ['proyeccion', 'cuentas', 'aperturas'].every(k => isDeepStrictEqual(v[k], reconstruido[k]));
+-      } catch { incrementalCorrecto = false; }
+-    }
+-    const reporte = { ...r.reporte,
+-      estado: !aperturasCorrectas || !incrementalCorrecto ? 'DIVERGENCIAS' : r.reporte.estado,
+-      aperturasCorrectas, incrementalCorrecto, pausaVerificadaPorAdaptador: true };
+-    return { p, config, control, periodo, incremental, reconstruido, reporte };
+-  }
+-  async function inicializar(uid, iglesiaId) {
+-    c.entorno(); return db.runTransaction(async tx => {
+-      const o = await observar(tx, uid, iglesiaId);
+-      exigir(!o.incremental.exists, 'NO_REINICIALIZAR_PROYECCIONES');
+-      exigir(o.p.data().epoca === 1 && o.reporte.estado === 'SIN_DIFERENCIAS_OBSERVADAS', 'CONCILIACION_REQUERIDA');
+-      const valor = c.sellar({ versionEsquema: 1, iglesiaId, epoca: 2, estadoVerificacion: 'VERIFICADA_INICIAL',
+-        ...o.reconstruido, verificacionInicial: { corte: o.control.data().ultimaSecuencia,
+-          versionControl: c.ver(o.control), reporteDigest: c.hash(o.reporte), certificacionHistorica: false } });
+-      tx.create(ref(iglesiaId, 'finanzas_control/incremental_v1'), valor);
+-      tx.update(o.p.ref, { epoca: 2, estado: 'operativo_v1' });
+-      tx.create(ref(iglesiaId, `finanzas_auditoria/inicio_incremental_v1_${o.control.data().ultimaSecuencia}`), {
+-        evento: 'inicializacion_incremental_v1', actorUid: uid, corte: o.control.data().ultimaSecuencia,
+-        reporteDigest: valor.verificacionInicial.reporteDigest, certificacionHistorica: false,
+-        fechaCreacion: FieldValue.serverTimestamp() });
+-      return { estado: 'INCREMENTAL_V1', epoca: 2, corte: o.control.data().ultimaSecuencia, reporte: o.reporte };
+-    });
+-  }
+-  async function conciliar(uid, iglesiaId) {
+-    c.entorno(); return db.runTransaction(async tx => (await observar(tx, uid, iglesiaId)).reporte);
+-  }
+-  async function reanudar(uid, iglesiaId) {
+-    c.entorno(); return db.runTransaction(async tx => {
+-      const o = await observar(tx, uid, iglesiaId);
+-      exigir(o.p.data().epoca === 2 && o.incremental.exists && o.reporte.estado === 'SIN_DIFERENCIAS_OBSERVADAS', 'CONCILIACION_REQUERIDA');
+-      tx.update(o.p.ref, { estado: 'operativo_v1' }); return o.reporte;
+-    });
+-  }
+-  async function cambiarPeriodo(uid, iglesiaId, nuevo) {
+-    c.entorno(); exigir(periodoValido(nuevo), 'PERIODO_INVALIDO');
+-    return db.runTransaction(async tx => {
+-      await c.autorizar(db, tx, uid, iglesiaId, 'administrarConfiguracion');
+-      const [p, control, incremental, periodo, destino] = await Promise.all([
+-        'finanzas_control/protocolo', 'finanzas_control/libro', 'finanzas_control/incremental_v1',
+-        'finanzas_control/periodo', `finanzas_resumenes/${nuevo}`].map(r => tx.get(ref(iglesiaId, r))));
+-      c.protocolo(p.data(), iglesiaId); const v = c.verificar(incremental.data(), control.data(), iglesiaId);
+-      const anterior = v.proyeccion.periodo.periodoId;
+-      const resumenAnterior = await tx.get(ref(iglesiaId, `finanzas_resumenes/${anterior}`));
+-      exigir(resumenAnterior.exists && resumenAnterior.data().ultimaSecuencia === control.data().ultimaSecuencia &&
+-        isDeepStrictEqual(resumenAnterior.data().datos, c.resumen(v)), 'RESUMEN_PROYECCION_DIVERGENTE');
+-      exigir(nuevo > anterior && !destino.exists && periodo.data().periodosAbiertos.length === 1 &&
+-        periodo.data().periodosAbiertos[0] === anterior, 'PERIODO_NO_AVANZABLE');
+-      const ceros = crearProyeccionInicial({ iglesiaId, configuracion: v.proyeccion.configuracion, periodoId: nuevo });
+-      const datos = { ...v, proyeccion: { ...v.proyeccion, periodo: { ...ceros.periodo,
+-        saldoInicialMinor: v.proyeccion.acumulado.saldoFinalMinor, saldoFinalMinor: v.proyeccion.acumulado.saldoFinalMinor } },
+-      cuentas: Object.fromEntries(Object.entries(v.cuentas).map(([id, saldo]) => [id, { ...saldo, periodoId: nuevo,
+-        saldoInicialPeriodoMinor: saldo.saldoMinor, saldoFinalPeriodoMinor: saldo.saldoMinor }])) };
+-      tx.update(incremental.ref, c.sellar(datos)); tx.update(periodo.ref, { periodosAbiertos: [nuevo] });
+-      tx.create(destino.ref, { versionEsquema: 1, iglesiaId, periodoId: nuevo, datos: c.resumen(datos),
+-        ultimaSecuencia: control.data().ultimaSecuencia, fechaActualizacion: FieldValue.serverTimestamp() });
+-      tx.create(ref(iglesiaId, `finanzas_auditoria/periodo_incremental_${nuevo}`), {
+-        evento: 'cambio_periodo_v1', actorUid: uid, anterior, nuevo, fechaCreacion: FieldValue.serverTimestamp() });
+-    });
+-  }
+-  return { pausar, inicializar, conciliar, reanudar, cambiarPeriodo };
+-}
+-module.exports = { crearMantenimiento };
++// Compatibilidad: reexporta la unica implementacion compartida.
++module.exports = require('../../finanzas_v1/mantenimiento');
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\test\\finanzas_release3\\integracion.cjs" b/test/finanzas_release3/integracion.cjs
+index 355efc7..ecfaa09 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\test\\finanzas_release3\\integracion.cjs"
++++ b/test/finanzas_release3/integracion.cjs
+@@ -2,18 +2,20 @@
+ const test = require('node:test'), assert = require('node:assert/strict');
+ const fs = require('node:fs'), path = require('node:path'), { createRequire } = require('node:module');
+ const req = createRequire(path.resolve(__dirname, '../../functions/package.json'));
+-const { entorno } = require('../../functions/test/finanzas_mvp_runtime/api');
++const { entorno } = require('../../functions/finanzas_v1/entorno');
+ entorno();
+ const { abrir, P } = require('../finanzas_mvp/soporte');
+ const { FieldValue } = req('firebase-admin/firestore');
+ const { HttpsError } = req('firebase-functions/v2/https');
+ const { crearApiPublicacion } = require('../../functions/finanzas_publicacion');
+-const { crearMantenimiento } = require('../../functions/test/finanzas_v1_incremental/mantenimiento');
++const { crearMantenimiento } = require('../../functions/finanzas_v1/mantenimiento');
+ const { crearApertura, crearIngreso, calcularLibro } = require('../../functions/finanzas_core/asientos');
+ const db = abrir(), mantenimiento = crearMantenimiento({db,FieldValue});
+ const CFG = {moneda:'CLP',escala:0,zonaHoraria:'America/Santiago'};
+-const corrida = Date.now().toString(36), evidencia = {proyecto:'demo-fesync',entrada:'functions/index.js',escenarios:[]};
+-const out = path.resolve(__dirname, '../../docs/fin_release_3_2026-10-24/emulador.json');
++const etapa = process.env.FIN_RELEASE_ETAPA ?? '3';
++if(!['3','4'].includes(etapa)) throw Error('Etapa de prueba no admitida.');
++const corrida = Date.now().toString(36), evidencia = {proyecto:'demo-fesync',entrada:'functions/index.js',etapa,escenarios:[]};
++const out = path.resolve(__dirname, `../../docs/fin_release_${etapa}_2026-10-24/emulador.json`);
+ let contador = 0;
+ 
+ async function usuario(nombre) {
+@@ -86,7 +88,7 @@ const habilitacion = f=>({versionEsquema:1,iglesiaId:f.iglesiaId,circuito:'v1_in
+ const gateRef = f=>db.doc(`${f.b}/finanzas_control/publicacion_v1`);
+ const fallo = (promise,code,message)=>assert.rejects(promise,e=>e.code===code&&(!message||e.message===message));
+ 
+-test('FIN-RELEASE-3: callables por entrada normal en Firebase Emulator',async t=>{
++test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,async t=>{
+   t.after(async()=>{fs.writeFileSync(out,JSON.stringify(evidencia,null,2));await db.terminate();});
+   const f=await fixture('principal'), ajena=await fixture('ajena');
+   async function caso(nombre,fn) {await t.test(nombre,async()=>{await fn();evidencia.escenarios.push(nombre);});}
+@@ -300,4 +302,23 @@ test('FIN-RELEASE-3: callables por entrada normal en Firebase Emulator',async t=
+     evidencia.mil={secuencias:[1002,1003],paginados:1003,saldo:11000,conciliacion:conciliacion.estado,certificacionHistorica:false};
+     evidencia.fixturePrincipal={iglesiaId:f.iglesiaId,conciliacion:principal.estado};
+   });
++  if(etapa === '4') {
++    await caso('Entrada normal registra 200/201 y revierte 201 como 202',async()=>{
++      const g=await fixture('frontera4',199);await gateRef(g).set(habilitacion(g));
++      const r200=await ejecutar(g,gasto(g,1)),r201=await ejecutar(g,gasto(g,10));
++      const original=(await db.doc(`${g.b}/finanzas_movimientos/${r201.movimientoId}`).get()).data();
++      const r202=await ejecutar(g,solicitud(g,'reversion',{originalId:r201.movimientoId,fechaContable:'2026-10-24',motivo:'Prueba local',referenciaAuditoria:'release4'}));
++      assert.deepEqual([r200.secuencia,r201.secuencia,r202.secuencia],[200,201,202]);
++      assert.deepEqual((await db.doc(`${g.b}/finanzas_movimientos/${r201.movimientoId}`).get()).data(),original);
++      await mantenimiento.pausar(g.admin.uid,g.iglesiaId);const r=await mantenimiento.conciliar(g.admin.uid,g.iglesiaId);
++      assert.equal(r.estado,'SIN_DIFERENCIAS_OBSERVADAS');
++      evidencia.frontera={secuencias:[200,201,202],conciliacion:r.estado};
++    });
++    await caso('Fixture privada exclusiva para Flutter conectado a Functions normales',async()=>{
++      const ui=await fixture('flutter4',199);await gateRef(ui).set(habilitacion(ui));
++      const q=await query(ui);assert.equal(q.historial.corte,199);
++      evidencia.flutter={iglesiaId:ui.iglesiaId,email:ui.admin.email,pertenenciaId:P,
++        corte:q.historial.corte,saldo:q.saldoTotalMinor,functionsPort:5018};
++    });
++  }
+ });
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\test\\finanzas_rules\\finanzas.test.js" b/test/finanzas_rules/finanzas.test.js
+index e0434dc..81f4928 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\test\\finanzas_rules\\finanzas.test.js"
++++ b/test/finanzas_rules/finanzas.test.js
+@@ -37,10 +37,14 @@ async function preparar(cambios) {
+ 
+ before(async () => {
+   // Host y proyecto fijos: la suite nunca usa el proyecto de producción.
++  const puertoAislado = process.env.FINANZAS_RULES_EMULATOR_PORT;
++  if(puertoAislado !== undefined && puertoAislado !== '8098') {
++    throw Error('Solo puerto aislado 8098 o puerto histórico 8088.');
++  }
+   env = await initializeTestEnvironment({
+     projectId: 'demo-fesync',
+     firestore: {
+-      host: '127.0.0.1', port: 8088,
++      host: '127.0.0.1', port: puertoAislado === '8098' ? 8098 : 8088,
+       rules: fs.readFileSync(path.join(__dirname, '..', '..', 'firestore.rules'), 'utf8'),
+     },
+   });
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\test\\finanzas_v1_incremental\\integracion.cjs" b/test/finanzas_v1_incremental/integracion.cjs
+index dfc3c40..fe73215 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\test\\finanzas_v1_incremental\\integracion.cjs"
++++ b/test/finanzas_v1_incremental/integracion.cjs
+@@ -9,11 +9,11 @@ Object.assign(process.env, { GCLOUD_PROJECT: 'demo-fesync', GOOGLE_CLOUD_PROJECT
+ const { abrir } = require('../finanzas_mvp/soporte');
+ const { FieldValue } = req('firebase-admin/firestore'); const { HttpsError } = req('firebase-functions/v2/https');
+ const { crearAdaptadorFirestore } = require('../../functions/finanzas_core/adaptador_firestore');
+-const { crearApiIncremental } = require('../../functions/test/finanzas_v1_incremental/api');
+-const { crearAdaptadorIncremental } = require('../../functions/test/finanzas_v1_incremental/adaptador');
+-const { crearMantenimiento } = require('../../functions/test/finanzas_v1_incremental/mantenimiento');
++const { crearApiIncremental } = require('../../functions/finanzas_v1/api');
++const { crearAdaptadorIncremental } = require('../../functions/finanzas_v1/adaptador');
++const { crearMantenimiento } = require('../../functions/finanzas_v1/mantenimiento');
+ const { crearApertura, crearIngreso, calcularLibro } = require('../../functions/finanzas_core/asientos');
+-const { ver } = require('../../functions/test/finanzas_v1_incremental/comun');
++const { ver } = require('../../functions/finanzas_v1/comun');
+ const CFG = { moneda: 'CLP', escala: 0, zonaHoraria: 'America/Santiago' }, P = 'a'.repeat(64);
+ const db = abrir(), metricas = [];
+ const medido = { doc: db.doc.bind(db), collection: db.collection.bind(db), runTransaction: (fn, ...args) => db.runTransaction(async tx => {
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\test\\finanzas_v1_incremental\\mantenimiento.cjs" b/test/finanzas_v1_incremental/mantenimiento.cjs
+index 055093f..d448cfc 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release4-20261025004440\\files\\test\\finanzas_v1_incremental\\mantenimiento.cjs"
++++ b/test/finanzas_v1_incremental/mantenimiento.cjs
+@@ -12,7 +12,7 @@ if(!['pausar','inicializar','conciliar','reanudar','periodo'].includes(accion)||
+ Object.assign(process.env,{GCLOUD_PROJECT:'demo-fesync',GOOGLE_CLOUD_PROJECT:'demo-fesync',
+  FIRESTORE_EMULATOR_HOST:'127.0.0.1:8088',FIREBASE_AUTH_EMULATOR_HOST:'127.0.0.1:9098',FUNCTIONS_EMULATOR:'true'});
+ const {abrir}=require('../finanzas_mvp/soporte'),{FieldValue}=req('firebase-admin/firestore');
+-const {crearMantenimiento}=require('../../functions/test/finanzas_v1_incremental/mantenimiento');
++const {crearMantenimiento}=require('../../functions/finanzas_v1/mantenimiento');
+ (async()=>{
+  const r=await fetch('http://127.0.0.1:9098/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=demo',{
+   method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:correo,password:'SoloDemo123!',returnSecureToken:true})});
+diff --git a/functions/finanzas_v1/adaptador.js b/functions/finanzas_v1/adaptador.js
+new file mode 100644
+index 0000000..315871b
+--- /dev/null
++++ b/functions/finanzas_v1/adaptador.js
+@@ -0,0 +1,150 @@
++'use strict';
++// Único adaptador V1 incremental compartido por entrada normal y demo.
++const { isDeepStrictEqual } = require('node:util');
++const { exigir, registroExacto, ErrorContable, validarFechaYPeriodo } = require('../finanzas_core/dinero');
++const { validarConfiguracionContable, exigirPeriodoContableAbierto } = require('../finanzas_core/configuracion');
++const { validarCuenta, validarEstadoCuenta, validarAperturaCuenta } = require('../finanzas_core/cuentas');
++const { crearApertura } = require('../finanzas_core/asientos');
++const { prepararIngreso, prepararGasto } = require('../finanzas_core/operaciones');
++const { prepararTransferencia, prepararReversion, prepararAjuste } = require('../finanzas_core/correcciones');
++const { proyectarMovimiento } = require('../finanzas_core/proyecciones');
++const c = require('./comun');
++const { PERMISOS_OPERACION: permisos } = require('./solicitudes');
++const camposEstado = ['iglesiaId', 'cuentaId', 'huboMovimientos', 'saldoMinor', 'solicitudesInciertas', 'aperturaRegistrada'];
++const seleccionar = (v, campos) => Object.fromEntries(campos.map(k => [k, v[k]]));
++function preparar(entrada) {
++  registroExacto(entrada, ['auth', 'operacion', 'solicitud']); registroExacto(entrada.auth, ['uid']); c.id(entrada.auth.uid);
++  exigir(Object.hasOwn(permisos, entrada.operacion), 'OPERACION_INCREMENTAL_NO_IMPLEMENTADA');
++  const s = entrada.solicitud, op = entrada.operacion;
++  registroExacto(s, ['versionEsquema', 'solicitudId', 'iglesiaId', 'periodoId', 'precondiciones', 'fechaContable',
++    ...(op === 'transferencia' ? ['origenId', 'destinoId', 'montoMinor'] : op === 'reversion' ? ['originalId', 'motivo', 'referenciaAuditoria'] :
++      ['cuentaId', ...(op === 'ajuste' ? ['deltaMinor', 'motivo', 'referenciaAuditoria'] : ['montoMinor']),
++        ...(['ingreso', 'gasto'].includes(op) ? ['categoriaId'] : [])])],
++  ['ingreso', 'gasto', 'apertura'].includes(op) ? ['descripcion', ...(op === 'ingreso' ? ['aportante'] : [])] : []);
++  exigir(s.versionEsquema === 1 && typeof s.solicitudId === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(s.solicitudId), 'SOLICITUD_ID_INVALIDA');
++  c.base(s.iglesiaId); validarFechaYPeriodo(s.fechaContable, s.periodoId);
++  const copia = JSON.parse(c.canon({ uid: entrada.auth.uid, operacion: op, solicitud: s }));
++  exigir(Buffer.byteLength(c.canon(copia)) <= 16384, 'SOLICITUD_DEMASIADO_GRANDE');
++  return { ...copia, huella: c.hash(copia), movimientoId: c.hash([`finanzas-${op}-v1`, copia.uid, s.iglesiaId, s.solicitudId]) };
++}
++function crearAdaptadorIncremental({ db, FieldValue }) {
++  async function ejecutar(entrada) {
++    if (['crearCuenta', 'crearCategoria'].includes(entrada.operacion)) {
++      return require('./catalogos').ejecutarCatalogo({ db, FieldValue, entrada });
++    }
++    c.entorno(); const e = preparar(entrada), s = e.solicitud, b = c.base(s.iglesiaId), op = e.operacion;
++    const ref = x => db.doc(`${b}/${x}`), reciboRef = db.doc(`operaciones_financieras/${e.uid}/solicitudes/${s.solicitudId}`);
++    try { return await db.runTransaction(async tx => {
++      const recibo = await tx.get(reciboRef);
++      if (recibo.exists) {
++        const r = recibo.data(), m = await tx.get(ref(`finanzas_movimientos/${e.movimientoId}`));
++        exigir(r.estado === 'confirmado' && r.versionEsquema === 1 && r.uid === e.uid && r.iglesiaId === s.iglesiaId &&
++          r.operacion === op && r.huella === e.huella && r.movimientoId === e.movimientoId &&
++          r.solicitudId === s.solicitudId && r.pertenenciaId === s.precondiciones.pertenenciaId &&
++          m.exists && m.data().huella === e.huella && m.data().secuencia === r.secuencia &&
++          m.data().responsable.uid === e.uid && m.data().responsable.pertenenciaId === r.pertenenciaId,
++        'RECIBO_NO_COINCIDE');
++        return { estado: 'CONFIRMADA', historica: true, movimientoId: e.movimientoId, secuencia: r.secuencia };
++      }
++      const ps = await tx.get(ref('finanzas_control/protocolo')); c.protocolo(ps.data(), s.iglesiaId);
++      const auth = await c.autorizar(db, tx, e.uid, s.iglesiaId, permisos[op], s.precondiciones);
++      const [configS, periodoS, controlS, incrementalS, resumenS, auditoriaS, movimientoS] = await Promise.all([
++        'finanzas_config/contabilidad', 'finanzas_control/periodo', 'finanzas_control/libro', 'finanzas_control/incremental_v1',
++        `finanzas_resumenes/${s.periodoId}`, `finanzas_auditoria/${e.movimientoId}`, `finanzas_movimientos/${e.movimientoId}`
++      ].map(x => tx.get(ref(x))));
++      exigir(configS.exists && periodoS.exists && controlS.exists, 'DOCUMENTO_REQUERIDO');
++      const cfg = validarConfiguracionContable(configS.data(), s.iglesiaId), control = controlS.data();
++      const v = c.verificar(incrementalS.data(), control, s.iglesiaId);
++      exigir(v.proyeccion.periodo.periodoId === s.periodoId && c.canon(v.proyeccion.configuracion) === c.canon(c.configDinero(cfg)), 'PERIODO_PROYECCION_DISTINTO');
++      exigir(resumenS.exists && resumenS.data().ultimaSecuencia === control.ultimaSecuencia &&
++        isDeepStrictEqual(resumenS.data().datos, c.resumen(v)), 'RESUMEN_PROYECCION_DIVERGENTE');
++      exigir(!auditoriaS.exists && !movimientoS.exists, 'MOVIMIENTO_SIN_RECIBO');
++      const estadoLibro = { iglesiaId: s.iglesiaId, huboMovimientos: control.huboMovimientos, periodosAbiertos: periodoS.data().periodosAbiertos };
++      exigirPeriodoContableAbierto(estadoLibro, s.iglesiaId, s.periodoId);
++      let originalS, marcaS;
++      if (op === 'reversion') {
++        c.id(s.originalId); [originalS, marcaS] = await Promise.all([
++          tx.get(ref(`finanzas_movimientos/${s.originalId}`)), tx.get(ref(`finanzas_reversiones/${s.originalId}`))]);
++        exigir(originalS.exists && !marcaS.exists, 'ORIGINAL_YA_REVERTIDO_O_CONTROL_MODIFICADO');
++      }
++      const ids = op === 'transferencia' ? [s.origenId, s.destinoId] : op === 'reversion' ?
++        originalS.data().movimiento.asientos.map(a => a.cuentaId) : [s.cuentaId];
++      exigir(ids.length >= 1 && ids.length <= 2 && new Set(ids).size === ids.length, 'CUENTAS_CORRECCION_INVALIDAS');
++      const seleccionadas = [];
++      for (const cuentaId of ids) {
++        c.id(cuentaId); const [cs, ss] = await Promise.all([
++          tx.get(ref(`finanzas_cuentas/${cuentaId}`)), tx.get(ref(`finanzas_saldos/${cuentaId}`))]);
++        exigir(cs.exists && ss.exists && v.cuentas[cuentaId], 'DESTINO_NO_EXISTE');
++        const cuenta = validarCuenta(cs.data().cuenta, s.iglesiaId);
++        exigir(cuenta.id === cuentaId, 'CUENTA_DOCUMENTO_DISTINTO');
++        const estado = validarEstadoCuenta(seleccionar(ss.data(), camposEstado), cuenta), p = v.cuentas[cuentaId];
++        exigir(estado.saldoMinor === p.saldoMinor && ss.data().ultimaSecuencia === p.revision &&
++          estado.huboMovimientos === (p.revision > 0) && estado.aperturaRegistrada === Boolean(v.aperturas[cuentaId]), 'SALDO_PROYECCION_DIVERGENTE');
++        exigir(!v.aperturas[cuentaId] || s.fechaContable >= v.aperturas[cuentaId].fechaContable, 'APERTURA_NO_INICIAL');
++        seleccionadas.push({ cuenta, estado, version: c.ver(cs) });
++      }
++      const versiones = { iglesia: c.ver(auth.iglesia), configuracion: c.ver(configS), controlPeriodo: c.ver(periodoS) };
++      let plan, aperturaS;
++      const solicitud = { ...s, idMovimiento: e.movimientoId };
++      if (['ingreso', 'gasto'].includes(op)) {
++        c.id(s.categoriaId); const categoriaS = await tx.get(ref(`finanzas_categorias/${s.categoriaId}`));
++        exigir(categoriaS.exists && categoriaS.data().categoria.id === s.categoriaId, 'DESTINO_NO_EXISTE');
++        plan = (op === 'ingreso' ? prepararIngreso : prepararGasto)({ solicitud, contexto: {
++          autorizacion: auth.contexto, configuracion: cfg, estadoLibro, cuenta: seleccionadas[0].cuenta,
++          estadoCuenta: seleccionadas[0].estado, categoria: categoriaS.data().categoria,
++          versiones: { ...versiones, cuenta: seleccionadas[0].version, categoria: c.ver(categoriaS) } } });
++      } else if (op === 'apertura') {
++        registroExacto(s.precondiciones, ['pertenenciaId', 'acceso', 'iglesia', 'configuracion', 'controlPeriodo', 'cuenta']);
++        for (const [k, version] of Object.entries({ ...versiones, cuenta: seleccionadas[0].version })) exigir(s.precondiciones[k] === version, 'CONTEXTO_OPERACION_MODIFICADO');
++        aperturaS = await tx.get(ref(`finanzas_aperturas/${s.cuentaId}`)); exigir(!aperturaS.exists, 'APERTURA_DUPLICADA');
++        const movimiento = crearApertura({ id: e.movimientoId, cuenta: seleccionar(seleccionadas[0].cuenta, ['id', 'moneda', 'escala']),
++          montoMinor: s.montoMinor, fechaContable: s.fechaContable, periodoId: s.periodoId, configuracion: c.configDinero(cfg) });
++        validarAperturaCuenta({ iglesiaId: s.iglesiaId, cuenta: seleccionadas[0].cuenta, estadoCuenta: seleccionadas[0].estado, movimiento });
++        plan = { movimiento, clasificacion: { cuentaId: s.cuentaId, categoriaId: null, naturaleza: 'patrimonial', tipoIngreso: null },
++          responsable: { uid: e.uid, pertenenciaId: auth.actor.data().pertenenciaId }, descripcion: s.descripcion ?? null,
++          privado: { aportante: null }, precondiciones: s.precondiciones };
++      } else {
++        plan = ({ transferencia: prepararTransferencia, reversion: prepararReversion, ajuste: prepararAjuste })[op]({ solicitud,
++          contexto: { autorizacion: auth.contexto, configuracion: cfg, estadoLibro, versiones, cuentas: seleccionadas,
++            ...(op === 'reversion' ? { original: { iglesiaId: originalS.data().iglesiaId, estado: originalS.data().estado,
++              version: c.ver(originalS), movimiento: originalS.data().movimiento, clasificacion: originalS.data().clasificacion,
++              reversion: { version: null, movimientoId: null } } } : {}) } });
++      }
++      const siguiente = control.ultimaSecuencia + 1;
++      const proyeccion = proyectarMovimiento({ estadoAnterior: v.proyeccion,
++        cuentasAnteriores: ids.map(id => v.cuentas[id]), movimiento: plan.movimiento,
++        original: op === 'reversion' ? { movimiento: originalS.data().movimiento, revision: originalS.data().secuencia, reversionId: null } : null,
++        aplicacion: { revisionAnterior: control.ultimaSecuencia, revisionNueva: siguiente, movimientoId: e.movimientoId } });
++      const nuevo = { ...v, proyeccion: proyeccion.estado, cuentas: { ...v.cuentas }, aperturas: { ...v.aperturas } };
++      for (const saldo of proyeccion.cuentas) nuevo.cuentas[saldo.cuentaId] = saldo;
++      if (op === 'apertura') nuevo.aperturas[s.cuentaId] = { id: e.movimientoId, fechaContable: s.fechaContable, secuencia: siguiente };
++      const timestamp = FieldValue.serverTimestamp();
++      // Barrera: todas las lecturas y validaciones preceden a cualquier escritura.
++      tx.create(ref(`finanzas_movimientos/${e.movimientoId}`), { versionEsquema: 1, iglesiaId: s.iglesiaId,
++        estado: 'confirmado', secuencia: siguiente, movimiento: plan.movimiento, clasificacion: plan.clasificacion,
++        responsable: plan.responsable, solicitudId: s.solicitudId, huella: e.huella,
++        descripcion: plan.descripcion ?? null, privado: plan.privado ?? { aportante: null,
++          ...(op === 'reversion' || op === 'ajuste' ? { motivo: plan.motivo, referenciaAuditoria: plan.referenciaAuditoria } : {}) },
++        precondiciones: plan.precondiciones, fechaCreacion: timestamp });
++      for (const saldo of proyeccion.cuentas) tx.update(ref(`finanzas_saldos/${saldo.cuentaId}`), {
++        saldoMinor: saldo.saldoMinor, huboMovimientos: true, ultimaSecuencia: siguiente,
++        ...(op === 'apertura' ? { aperturaRegistrada: true } : {}), fechaActualizacion: timestamp });
++      if (op === 'reversion') tx.create(ref(`finanzas_reversiones/${s.originalId}`), { versionEsquema: 1,
++        iglesiaId: s.iglesiaId, ...plan.controlReversion, secuencia: siguiente, fechaCreacion: timestamp });
++      if (op === 'apertura') tx.create(ref(`finanzas_aperturas/${s.cuentaId}`), { versionEsquema: 1,
++        iglesiaId: s.iglesiaId, cuentaId: s.cuentaId, movimientoId: e.movimientoId, secuencia: siguiente, fechaCreacion: timestamp });
++      tx.update(ref('finanzas_control/incremental_v1'), c.sellar(nuevo));
++      tx.update(ref('finanzas_control/libro'), { ultimaSecuencia: siguiente, huboMovimientos: true, fechaActualizacion: timestamp });
++      tx.update(ref(`finanzas_resumenes/${s.periodoId}`), { datos: c.resumen(nuevo), ultimaSecuencia: siguiente, fechaActualizacion: timestamp });
++      tx.create(ref(`finanzas_auditoria/${e.movimientoId}`), { versionEsquema: 1, iglesiaId: s.iglesiaId,
++        evento: `${op}_registrado`, responsable: plan.responsable, solicitudId: s.solicitudId,
++        movimientoId: e.movimientoId, secuencia: siguiente, fechaCreacion: timestamp });
++      tx.create(reciboRef, { versionEsquema: 1, uid: e.uid, operacion: op, iglesiaId: s.iglesiaId,
++        solicitudId: s.solicitudId, huella: e.huella, pertenenciaId: plan.responsable.pertenenciaId,
++        movimientoId: e.movimientoId, estado: 'confirmado', secuencia: siguiente, fechaCreacion: timestamp });
++      return { estado: 'CONFIRMADA', historica: false, movimientoId: e.movimientoId, secuencia: siguiente };
++    }); } catch (error) { if (error instanceof ErrorContable) throw error; throw new ErrorContable('RESULTADO_INCIERTO'); }
++  }
++  return { ejecutar };
++}
++module.exports = { crearAdaptadorIncremental };
+diff --git a/functions/finanzas_v1/api.js b/functions/finanzas_v1/api.js
+new file mode 100644
+index 0000000..8166fb8
+--- /dev/null
++++ b/functions/finanzas_v1/api.js
+@@ -0,0 +1,67 @@
++'use strict';
++const { exigir, registroExacto, ErrorContable } = require('../finanzas_core/dinero');
++const { crearSolicitudes } = require('./solicitudes');
++const { crearAdaptadorIncremental } = require('./adaptador');
++const c = require('./comun');
++function cursorLeer(texto) {
++  exigir(typeof texto === 'string' && texto.length <= 1200, 'CURSOR_INVALIDO');
++  let v; try { v = JSON.parse(Buffer.from(texto, 'base64url').toString('utf8')); } catch { exigir(false, 'CURSOR_INVALIDO'); }
++  registroExacto(v, ['version', 'iglesiaId', 'uid', 'pertenenciaId', 'corte', 'ultimo', 'limite']);
++  exigir(v.version === 1 && Number.isSafeInteger(v.corte) && Number.isSafeInteger(v.ultimo) && v.ultimo > 0 &&
++    v.ultimo <= v.corte, 'CURSOR_INVALIDO'); return v;
++}
++function crearApiIncremental({ db, FieldValue, HttpsError }) {
++  const adaptador = crearAdaptadorIncremental({ db, FieldValue });
++  const api = crearSolicitudes({ db, HttpsError, adaptador });
++  async function consultar(request) {
++    c.entorno();
++    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicia sesión.');
++    try {
++      const uid = request.auth.uid, data = request.data; registroExacto(data, [], ['contexto', 'limite', 'cursor', 'historialPaginado']);
++      exigir(data.historialPaginado === true, 'CLIENTE_HISTORIAL_PAGINADO_REQUERIDO');
++      const limite = data.limite ?? 50; exigir(Number.isInteger(limite) && limite >= 1 && limite <= 50, 'LIMITE_PAGINA_INVALIDO');
++      const cursor = data.cursor == null ? null : cursorLeer(data.cursor);
++      return await db.runTransaction(async tx => {
++        const perfil = await tx.get(db.doc(`usuarios_globales/${uid}`));
++        exigir(perfil.exists, 'CONTABILIDAD_NO_AUTORIZADA'); const iglesiaId = perfil.data().iglesiaId, b = c.base(iglesiaId);
++        const auth = await c.autorizar(db, tx, uid, iglesiaId);
++        const contexto = { iglesiaId, pertenenciaId: auth.actor.data().pertenenciaId };
++        if (data.contexto) exigir(c.canon(data.contexto) === c.canon(contexto), 'PERTENENCIA_ANTERIOR');
++        const [p, control, estado] = await Promise.all(['finanzas_control/protocolo', 'finanzas_control/libro',
++          'finanzas_control/incremental_v1'].map(r => tx.get(db.doc(`${b}/${r}`))));
++        c.protocolo(p.data(), iglesiaId); const v = c.verificar(estado.data(), control.data(), iglesiaId);
++        if (cursor) exigir(cursor.iglesiaId === iglesiaId && cursor.uid === uid &&
++          cursor.pertenenciaId === contexto.pertenenciaId && cursor.limite === limite &&
++          cursor.corte <= control.data().ultimaSecuencia, 'CURSOR_AJENO_O_INVALIDO');
++        const corte = cursor?.corte ?? control.data().ultimaSecuencia;
++        let q = db.collection(`${b}/finanzas_movimientos`).where('secuencia', '<=', corte).orderBy('secuencia', 'desc').limit(limite + 1);
++        if (cursor) q = q.startAfter(cursor.ultimo);
++        const [historia, cuentas, categorias] = await Promise.all([tx.get(q),
++          tx.get(db.collection(`${b}/finanzas_cuentas`).limit(51)), tx.get(db.collection(`${b}/finanzas_categorias`).limit(51))]);
++        exigir(cuentas.size <= 50 && categorias.size <= 50, 'LIMITE_LIBRO_EXCEDIDO');
++        let esperado = cursor ? cursor.ultimo - 1 : corte;
++        for (const s of historia.docs) {
++          const d = s.data(); exigir(d.secuencia === esperado-- && d.iglesiaId === iglesiaId &&
++            d.estado === 'confirmado' && d.movimiento.id === s.id, 'HISTORIAL_INCOMPLETO');
++        }
++        exigir(historia.size === limite + 1 || esperado === 0, 'HISTORIAL_INCOMPLETO');
++        const pagina = historia.docs.slice(0, limite), hayMas = historia.size > limite;
++        const siguiente = hayMas ? Buffer.from(JSON.stringify({ version: 1, iglesiaId, uid, pertenenciaId: contexto.pertenenciaId,
++          corte, ultimo: pagina.at(-1).data().secuencia, limite })).toString('base64url') : null;
++        return { contexto, permisos: auth.permisos, configurada: true,
++          versionConsulta: 'v1_incremental_paginado', protocolo: 'operativo_v1', periodoId: v.proyeccion.periodo.periodoId,
++          cuentas: cuentas.docs.map(s => s.data().cuenta), categorias: categorias.docs.map(s => s.data().categoria),
++          saldoTotalMinor: v.proyeccion.acumulado.saldoFinalMinor,
++          saldos: Object.fromEntries(Object.values(v.cuentas).map(s => [s.cuentaId, s.saldoMinor])), resumen: c.resumen(v),
++          movimientos: pagina.map(s => { const d = s.data(); return { ...d.movimiento, secuencia: d.secuencia,
++            clasificacion: d.clasificacion, descripcion: d.descripcion ?? null }; }).reverse(),
++          historial: { corte, limite, cursorSiguiente: siguiente, hayMas, orden: 'secuencia_desc' } };
++      });
++    } catch (e) {
++      if (e instanceof ErrorContable) throw new HttpsError(e.codigo === 'CONTABILIDAD_NO_AUTORIZADA' ? 'permission-denied' : 'failed-precondition', e.codigo);
++      throw new HttpsError('unavailable', 'No se pudo consultar el historial.');
++    }
++  }
++  return { ejecutar: api.ejecutar, consultar };
++}
++module.exports = { crearApiIncremental };
+diff --git a/functions/finanzas_v1/catalogos.js b/functions/finanzas_v1/catalogos.js
+new file mode 100644
+index 0000000..274f618
+--- /dev/null
++++ b/functions/finanzas_v1/catalogos.js
+@@ -0,0 +1,75 @@
++'use strict';
++const { isDeepStrictEqual } = require('node:util');
++const { exigir, registroExacto } = require('../finanzas_core/dinero');
++const { crearCuenta } = require('../finanzas_core/cuentas');
++const { crearCategoria } = require('../finanzas_core/categorias');
++const { crearSaldoInicial } = require('../finanzas_core/proyecciones');
++const { exigirPeriodoContableAbierto, validarConfiguracionContable } = require('../finanzas_core/configuracion');
++const c = require('./comun');
++async function ejecutarCatalogo({ db, FieldValue, entrada }) {
++  c.entorno(); registroExacto(entrada, ['auth', 'operacion', 'solicitud']); registroExacto(entrada.auth, ['uid']);
++  const esCuenta = entrada.operacion === 'crearCuenta', campo = esCuenta ? 'cuenta' : 'categoria';
++  const copia = JSON.parse(c.canon({ uid: entrada.auth.uid, operacion: entrada.operacion, solicitud: entrada.solicitud }));
++  const s = copia.solicitud; c.id(copia.uid); c.base(s.iglesiaId);
++  registroExacto(s, ['versionEsquema', 'solicitudId', 'iglesiaId', 'periodoId', 'precondiciones', campo]);
++  exigir(s.versionEsquema === 1 && typeof s.solicitudId === 'string' && /^[A-Za-z0-9_-]{16,128}$/.test(s.solicitudId) &&
++    Buffer.byteLength(c.canon(copia)) <= 16384, 'SOLICITUD_INVALIDA');
++  registroExacto(s[campo], esCuenta ? ['codigo', 'nombre', 'tipo'] : ['codigo', 'nombre', 'naturaleza', 'tipoIngreso']);
++  const huella = c.hash(copia), entidadId = c.hash([`finanzas-${entrada.operacion}-v1`, copia.uid, s.iglesiaId, s.solicitudId]);
++  const b = c.base(s.iglesiaId), ref = r => db.doc(`${b}/${r}`), coleccion = esCuenta ? 'cuentas' : 'categorias';
++  const reciboRef = db.doc(`operaciones_financieras/${copia.uid}/solicitudes/${s.solicitudId}`), entidadRef = ref(`finanzas_${coleccion}/${entidadId}`);
++  return db.runTransaction(async tx => {
++    const recibo = await tx.get(reciboRef);
++    if (recibo.exists) {
++      const entidad = await tx.get(entidadRef), r = recibo.data();
++      exigir(r.uid === copia.uid && r.huella === huella && r.estado === 'confirmado' && r.iglesiaId === s.iglesiaId &&
++        r.solicitudId === s.solicitudId && r.operacion === entrada.operacion && r.movimientoId === entidadId &&
++        r.pertenenciaId === s.precondiciones.pertenenciaId && entidad.exists && entidad.data().huella === huella &&
++        entidad.data()[campo].id === entidadId && entidad.data().responsable.uid === copia.uid, 'RECIBO_NO_COINCIDE');
++      return { estado: 'CONFIRMADA', historica: true, [esCuenta ? 'cuentaId' : 'categoriaId']: entidadId };
++    }
++    const protocolo = await tx.get(ref('finanzas_control/protocolo')); c.protocolo(protocolo.data(), s.iglesiaId);
++    const auth = await c.autorizar(db, tx, copia.uid, s.iglesiaId, 'administrarCatalogos', s.precondiciones);
++    const [config, periodo, control, estado, reserva, auditoria, entidadS, resumenS] = await Promise.all([
++      'finanzas_config/contabilidad', 'finanzas_control/periodo', 'finanzas_control/libro', 'finanzas_control/incremental_v1',
++      `finanzas_reservas_${coleccion}/${s[campo].codigo}`, `finanzas_auditoria/${entidadId}`, `finanzas_${coleccion}/${entidadId}`,
++      `finanzas_resumenes/${s.periodoId}`].map(r => tx.get(ref(r))));
++    const cfg = validarConfiguracionContable(config.data(), s.iglesiaId), v = c.verificar(estado.data(), control.data(), s.iglesiaId);
++    exigir(v.proyeccion.periodo.periodoId === s.periodoId && resumenS.exists &&
++      isDeepStrictEqual(resumenS.data().datos, c.resumen(v)) && resumenS.data().ultimaSecuencia === control.data().ultimaSecuencia, 'RESUMEN_PROYECCION_DIVERGENTE');
++    registroExacto(s.precondiciones, ['pertenenciaId', 'acceso', 'iglesia', 'configuracion', 'controlPeriodo']);
++    for (const [k, snap] of [['iglesia', auth.iglesia], ['configuracion', config], ['controlPeriodo', periodo]]) exigir(s.precondiciones[k] === c.ver(snap), 'CONTEXTO_OPERACION_MODIFICADO');
++    exigirPeriodoContableAbierto({ iglesiaId: s.iglesiaId, huboMovimientos: control.data().huboMovimientos,
++      periodosAbiertos: periodo.data().periodosAbiertos }, s.iglesiaId, s.periodoId);
++    c.id(s[campo].codigo); exigir(!reserva.exists && !auditoria.exists && !entidadS.exists, 'CODIGO_RESERVADO');
++    const catalogo = await tx.get(db.collection(`${b}/finanzas_${coleccion}`).limit(51));
++    exigir(catalogo.size < 50, 'LIMITE_LIBRO_EXCEDIDO');
++    const entidad = esCuenta ? crearCuenta({ iglesiaId: s.iglesiaId, catalogo: catalogo.docs.map(d => d.data().cuenta),
++      cuenta: { ...s.cuenta, versionEsquema: 1, id: entidadId, iglesiaId: s.iglesiaId, moneda: cfg.moneda, escala: cfg.escala, estado: 'activa' } }) :
++      crearCategoria({ iglesiaId: s.iglesiaId, catalogo: catalogo.docs.map(d => d.data().categoria),
++        categoria: { ...s.categoria, versionEsquema: 1, id: entidadId, iglesiaId: s.iglesiaId, estado: 'activa' } });
++    let resumenes;
++    if (esCuenta) { resumenes = await tx.get(db.collection(`${b}/finanzas_resumenes`).limit(25)); exigir(resumenes.size <= 24, 'LIMITE_MANTENIMIENTO_EXCEDIDO'); }
++    const responsable = { uid: copia.uid, pertenenciaId: auth.actor.data().pertenenciaId }, fecha = FieldValue.serverTimestamp();
++    tx.create(entidadRef, { [campo]: entidad, huella, solicitudId: s.solicitudId, responsable, fechaCreacion: fecha });
++    tx.create(reserva.ref, { versionEsquema: 1, iglesiaId: s.iglesiaId, codigo: entidad.codigo, entidadId, fechaCreacion: fecha });
++    if (esCuenta) {
++      const nuevo = { ...v, cuentas: { ...v.cuentas, [entidadId]: crearSaldoInicial({ iglesiaId: s.iglesiaId, cuentaId: entidadId, periodoId: s.periodoId }) } };
++      tx.create(ref(`finanzas_saldos/${entidadId}`), { versionEsquema: 1, iglesiaId: s.iglesiaId, cuentaId: entidadId,
++        saldoMinor: 0, huboMovimientos: false, aperturaRegistrada: false, solicitudesInciertas: 0, ultimaSecuencia: 0, fechaActualizacion: fecha });
++      tx.update(estado.ref, c.sellar(nuevo));
++      // Una cuenta nueva extiende mapas con cero; conserva importes y secuencias cerrados.
++      for (const r of resumenes.docs) tx.update(r.ref, { datos: { ...r.data().datos,
++        saldoInicialPorCuenta: { ...r.data().datos.saldoInicialPorCuenta, [entidadId]: 0 },
++        saldoFinalPorCuenta: { ...r.data().datos.saldoFinalPorCuenta, [entidadId]: 0 } } });
++    }
++    tx.update(control.ref, { fechaActualizacion: fecha });
++    tx.create(auditoria.ref, { versionEsquema: 1, iglesiaId: s.iglesiaId, evento: entrada.operacion,
++      responsable, entidadId, solicitudId: s.solicitudId, fechaCreacion: fecha });
++    tx.create(reciboRef, { versionEsquema: 1, uid: copia.uid, operacion: entrada.operacion, iglesiaId: s.iglesiaId,
++      solicitudId: s.solicitudId, huella, pertenenciaId: responsable.pertenenciaId, movimientoId: entidadId,
++      estado: 'confirmado', secuencia: null, fechaCreacion: fecha });
++    return { estado: 'CONFIRMADA', historica: false, [esCuenta ? 'cuentaId' : 'categoriaId']: entidadId };
++  });
++}
++module.exports = { ejecutarCatalogo };
+diff --git a/functions/finanzas_v1/comun.js b/functions/finanzas_v1/comun.js
+new file mode 100644
+index 0000000..3e95ed0
+--- /dev/null
++++ b/functions/finanzas_v1/comun.js
+@@ -0,0 +1,57 @@
++'use strict';
++const { createHash } = require('node:crypto');
++const { exigir, registroExacto } = require('../finanzas_core/dinero');
++const { exigirPermisoContable } = require('../finanzas_core/autorizacion');
++const { entorno } = require('./entorno');
++const canon = v => v === null || typeof v !== 'object' ? JSON.stringify(v) : Array.isArray(v) ?
++  `[${v.map(canon).join(',')}]` : `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}`;
++const hash = v => createHash('sha256').update(canon(v)).digest('hex');
++const ver = s => { exigir(s.exists && s.updateTime, 'DOCUMENTO_REQUERIDO'); return `${s.updateTime.seconds}:${s.updateTime.nanoseconds}`; };
++const id = v => exigir(typeof v === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(v), 'ID_INVALIDO');
++const base = iglesiaId => { id(iglesiaId); return `iglesias/${iglesiaId}`; };
++const configDinero = c => ({ moneda: c.moneda, escala: c.escala, zonaHoraria: c.zonaHoraria });
++function protocolo(d, iglesiaId, pausado = false) {
++  registroExacto(d, ['versionProtocolo', 'iglesiaId', 'epoca', 'estado']);
++  exigir(d.versionProtocolo === 1 && d.iglesiaId === iglesiaId &&
++    (pausado ? [1, 2].includes(d.epoca) : d.epoca === 2) &&
++    d.estado === (pausado ? 'bloqueado' : 'operativo_v1'), 'PROTOCOLO_INCREMENTAL_BLOQUEADO');
++}
++async function autorizar(db, tx, uid, iglesiaId, permiso = 'leer', precondiciones = null) {
++  id(uid); const b = base(iglesiaId);
++  const [actor, iglesia, acceso] = await Promise.all([
++    tx.get(db.doc(`usuarios_globales/${uid}`)), tx.get(db.doc(b)), tx.get(db.doc(`${b}/finanzas_config/acceso`))]);
++  exigir(actor.exists && iglesia.exists && acceso.exists, 'CONTABILIDAD_NO_AUTORIZADA');
++  id(iglesia.data().adminUid);
++  const titular = iglesia.data().adminUid === uid ? actor : await tx.get(db.doc(`usuarios_globales/${iglesia.data().adminUid}`));
++  const contexto = { auth: { uid }, iglesiaId, perfilActor: { id: uid, datos: actor.data() },
++    iglesia: { id: iglesiaId, datos: iglesia.data() }, perfilTitular: { id: iglesia.data().adminUid, datos: titular.data() },
++    acceso: { id: 'acceso', iglesiaId, version: ver(acceso), datos: acceso.data() },
++    pertenenciaIdEsperada: precondiciones?.pertenenciaId ?? actor.data().pertenenciaId,
++    versionAccesoEsperada: precondiciones?.acceso ?? ver(acceso) };
++  const decision = exigirPermisoContable(contexto, permiso);
++  return { actor, iglesia, acceso, contexto, permisos: decision.permisos };
++}
++function sellar(v) { return { ...v, sello: hash(v) }; }
++function verificar(v, control, iglesiaId) {
++  exigir(v && v.versionEsquema === 1 && v.iglesiaId === iglesiaId &&
++    v.estadoVerificacion === 'VERIFICADA_INICIAL' && v.epoca === 2, 'PROYECCION_NO_VERIFICADA');
++  const { sello, ...datos } = v;
++  exigir(sello === hash(datos) && v.proyeccion.revision === control.ultimaSecuencia &&
++    v.proyeccion.iglesiaId === iglesiaId && Number.isSafeInteger(control.ultimaSecuencia) && control.ultimaSecuencia >= 0 &&
++    Number.isSafeInteger(v.verificacionInicial.corte) && v.verificacionInicial.corte >= 0 &&
++    v.verificacionInicial.corte <= control.ultimaSecuencia &&
++    /^[a-f0-9]{64}$/.test(v.verificacionInicial.reporteDigest) &&
++    v.verificacionInicial.certificacionHistorica === false &&
++    control.versionEsquema === 1 && control.iglesiaId === iglesiaId &&
++    control.huboMovimientos === (control.ultimaSecuencia > 0) &&
++    Object.keys(v.cuentas).length <= 50, 'PROYECCION_DIVERGENTE');
++  for (const [id, saldo] of Object.entries(v.cuentas)) exigir(saldo.iglesiaId === iglesiaId && saldo.cuentaId === id &&
++    saldo.periodoId === v.proyeccion.periodo.periodoId && saldo.revision <= control.ultimaSecuencia, 'PROYECCION_DIVERGENTE');
++  return datos;
++}
++function resumen(v) {
++  return { ...v.proyeccion.configuracion, ...v.proyeccion.periodo,
++    saldoInicialPorCuenta: Object.fromEntries(Object.values(v.cuentas).map(c => [c.cuentaId, c.saldoInicialPeriodoMinor])),
++    saldoFinalPorCuenta: Object.fromEntries(Object.values(v.cuentas).map(c => [c.cuentaId, c.saldoFinalPeriodoMinor])) };
++}
++module.exports = { entorno, canon, hash, ver, id, base, configDinero, protocolo, autorizar, sellar, verificar, resumen };
+diff --git a/functions/finanzas_v1/entorno.js b/functions/finanzas_v1/entorno.js
+new file mode 100644
+index 0000000..593225f
+--- /dev/null
++++ b/functions/finanzas_v1/entorno.js
+@@ -0,0 +1,10 @@
++'use strict';
++// Barrera conservada: solo demo-fesync hasta autorizar una futura publicación.
++function entorno(env = process.env) {
++  if (env.GCLOUD_PROJECT !== 'demo-fesync' ||
++      (env.GOOGLE_CLOUD_PROJECT !== undefined && env.GOOGLE_CLOUD_PROJECT !== 'demo-fesync') ||
++      env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8088' ||
++      env.FIREBASE_AUTH_EMULATOR_HOST !== '127.0.0.1:9098' || env.FUNCTIONS_EMULATOR !== 'true' ||
++      env.GOOGLE_APPLICATION_CREDENTIALS || env.FIREBASE_TOKEN || env.GOOGLE_OAUTH_ACCESS_TOKEN) throw Error('SOLO_EMULADOR_DEMO');
++}
++module.exports = { entorno };
+diff --git a/functions/finanzas_v1/mantenimiento.js b/functions/finanzas_v1/mantenimiento.js
+new file mode 100644
+index 0000000..12a14a5
+--- /dev/null
++++ b/functions/finanzas_v1/mantenimiento.js
+@@ -0,0 +1,164 @@
++'use strict';
++const { isDeepStrictEqual } = require('node:util');
++const { FieldPath } = require('firebase-admin/firestore');
++const { exigir, periodoValido } = require('../finanzas_core/dinero');
++const { validarCatalogoCuentas } = require('../finanzas_core/cuentas');
++const { validarCatalogoCategorias } = require('../finanzas_core/categorias');
++const { validarConfiguracionContable } = require('../finanzas_core/configuracion');
++const { conciliarPaginas } = require('../finanzas_core/conciliacion');
++const { crearProyeccionInicial, crearSaldoInicial, proyectarMovimiento } = require('../finanzas_core/proyecciones');
++const c = require('./comun');
++function reconstruir(checkpoint, iglesiaId, configuracion, cuentas, periodoId) {
++  let proyeccion = crearProyeccionInicial({ iglesiaId, configuracion, periodoId });
++  const saldos = Object.fromEntries(cuentas.map(a => [a.id, crearSaldoInicial({ iglesiaId, cuentaId: a.id, periodoId })]));
++  const anteriores = new Map(), aperturas = {};
++  for (const d of checkpoint.documentos) {
++    const original = d.movimiento.reversaDe === null ? null : anteriores.get(d.movimiento.reversaDe);
++    const r = proyectarMovimiento({ estadoAnterior: proyeccion,
++      cuentasAnteriores: d.movimiento.asientos.map(a => saldos[a.cuentaId]), movimiento: d.movimiento,
++      original: original ? { movimiento: original.movimiento, revision: original.secuencia, reversionId: null } : null,
++      aplicacion: { revisionAnterior: d.secuencia - 1, revisionNueva: d.secuencia, movimientoId: d.id } });
++    proyeccion = r.estado; r.cuentas.forEach(a => { saldos[a.cuentaId] = a; }); anteriores.set(d.id, d);
++    if (d.movimiento.clase === 'apertura') aperturas[d.movimiento.asientos[0].cuentaId] = {
++      id: d.id, fechaContable: d.movimiento.fechaContable, secuencia: d.secuencia };
++  }
++  return { proyeccion, cuentas: saldos, aperturas };
++}
++function crearMantenimiento({ db, FieldValue }) {
++  const ref = (iglesiaId, ruta) => db.doc(`${c.base(iglesiaId)}/${ruta}`);
++  async function pausar(uid, iglesiaId) {
++    c.entorno(); return db.runTransaction(async tx => {
++      await c.autorizar(db, tx, uid, iglesiaId, 'administrarConfiguracion');
++      const p = await tx.get(ref(iglesiaId, 'finanzas_control/protocolo')), d = p.data();
++      exigir(d && d.versionProtocolo === 1 && d.iglesiaId === iglesiaId && [1, 2].includes(d.epoca) &&
++        ['operativo_v1', 'bloqueado'].includes(d.estado), 'PROTOCOLO_INCREMENTAL_BLOQUEADO');
++      tx.update(p.ref, { estado: 'bloqueado' }); return { estado: 'bloqueado', epoca: d.epoca };
++    });
++  }
++  async function observar(tx, uid, iglesiaId) {
++    const b = c.base(iglesiaId);
++    await c.autorizar(db, tx, uid, iglesiaId, 'administrarConfiguracion');
++    const [p, config, control, periodo, incremental, v2] = await Promise.all([
++      'finanzas_control/protocolo', 'finanzas_config/contabilidad', 'finanzas_control/libro',
++      'finanzas_control/periodo', 'finanzas_control/incremental_v1', 'finanzas_control/generacion_v2'
++    ].map(r => tx.get(ref(iglesiaId, r))));
++    c.protocolo(p.data(), iglesiaId, true); exigir(!v2.exists, 'LIBRO_V2_NO_ADMITIDO');
++    const configuracion = c.configDinero(validarConfiguracionContable(config.data(), iglesiaId));
++    const actual = periodo.data()?.periodosAbiertos;
++    exigir(Array.isArray(actual) && actual.length === 1 && periodoValido(actual[0]), 'PERIODO_NO_ABIERTO');
++    const qs = {};
++    for (const [nombre, limite] of Object.entries({ finanzas_cuentas: 50, finanzas_categorias: 50,
++      finanzas_saldos: 50, finanzas_resumenes: 24, finanzas_reversiones: 20000, finanzas_aperturas: 50 })) {
++      qs[nombre] = await tx.get(db.collection(`${b}/${nombre}`).limit(limite + 1));
++      exigir(qs[nombre].size <= limite, 'LIMITE_MANTENIMIENTO_EXCEDIDO');
++    }
++    const cuentas = validarCatalogoCuentas(qs.finanzas_cuentas.docs.map(s => {
++      exigir(s.data().cuenta.id === s.id, 'CUENTA_DOCUMENTO_DISTINTO'); return s.data().cuenta;
++    }), iglesiaId);
++    validarCatalogoCategorias(qs.finanzas_categorias.docs.map(s => {
++      exigir(s.data().categoria.id === s.id, 'CATEGORIA_DOCUMENTO_DISTINTO'); return s.data().categoria;
++    }), iglesiaId);
++    const paginas = []; let cursor = null, cantidad = 0, bytes = 0;
++    while (true) {
++      // Enumerar por ID también observa documentos sin secuencia. Ordenar solo
++      // por secuencia ocultaría esos documentos y podría saltar empates de página.
++      let q = db.collection(`${b}/finanzas_movimientos`).orderBy(FieldPath.documentId()).limit(250);
++      if (cursor !== null) q = q.startAfter(cursor);
++      const page = await tx.get(q); const docs = page.docs.map(s => ({ id: s.id, version: c.ver(s), datos: s.data() }));
++      cantidad += docs.length; bytes += Buffer.byteLength(JSON.stringify(docs));
++      exigir(cantidad <= 20000 && bytes <= 8 * 1024 * 1024, 'LIMITE_MANTENIMIENTO_EXCEDIDO');
++      if (docs.length) paginas.push(docs);
++      if (docs.length < 250) break;
++      cursor = page.docs.at(-1);
++    }
++    const ordenados = paginas.flat().sort((a, b) => {
++      const x = Number.isSafeInteger(a.datos.secuencia) ? a.datos.secuencia : Number.MAX_SAFE_INTEGER;
++      const y = Number.isSafeInteger(b.datos.secuencia) ? b.datos.secuencia : Number.MAX_SAFE_INTEGER;
++      return x - y || a.id.localeCompare(b.id);
++    });
++    const paginasOrdenadas = [];
++    for (let i = 0; i < ordenados.length; i += 250) paginasOrdenadas.push(ordenados.slice(i, i + 250));
++    const periodos = [...new Set([actual[0], ...paginas.flat().map(d => d.datos.movimiento.periodoId),
++      ...qs.finanzas_resumenes.docs.map(s => s.id)])].sort();
++    const observacion = { version: c.ver(control), datos: control.data() };
++    const r = conciliarPaginas({ contexto: { iglesiaId, configuracion,
++      cuentas: cuentas.map(a => ({ id: a.id, moneda: a.moneda, escala: a.escala })), periodos,
++      controlInicial: observacion, modoLectura: 'PAUSA_EXTERNA_DECLARADA' },
++      checkpoint: null, paginas: paginasOrdenadas, finDelListado: true, controlFinal: observacion,
++      proyecciones: { corte: { secuencia: control.data().ultimaSecuencia, versionControl: c.ver(control) },
++        saldos: qs.finanzas_saldos.docs.map(s => ({ cuentaId: s.id, datos: s.data() })),
++        resumenes: qs.finanzas_resumenes.docs.map(s => ({ periodoId: s.id, datos: s.data() })),
++        marcadores: qs.finanzas_reversiones.docs.map(s => ({ originalId: s.id, datos: s.data() })) } });
++    const reconstruido = reconstruir(r.checkpoint, iglesiaId, configuracion, cuentas, actual[0]);
++    const marcas = new Map(qs.finanzas_aperturas.docs.map(s => [s.id, s.data()]));
++    const aperturasCorrectas = Object.entries(reconstruido.aperturas).every(([id, a]) => {
++      const marca = marcas.get(id); return marca && marca.iglesiaId === iglesiaId && marca.cuentaId === id &&
++        marca.movimientoId === a.id && marca.secuencia === a.secuencia;
++    }) && marcas.size === Object.keys(reconstruido.aperturas).length;
++    let incrementalCorrecto = !incremental.exists;
++    if (incremental.exists) {
++      try { const v = c.verificar(incremental.data(), control.data(), iglesiaId);
++        incrementalCorrecto = ['proyeccion', 'cuentas', 'aperturas'].every(k => isDeepStrictEqual(v[k], reconstruido[k]));
++      } catch { incrementalCorrecto = false; }
++    }
++    const reporte = { ...r.reporte,
++      estado: !aperturasCorrectas || !incrementalCorrecto ? 'DIVERGENCIAS' : r.reporte.estado,
++      aperturasCorrectas, incrementalCorrecto, pausaVerificadaPorAdaptador: true };
++    return { p, config, control, periodo, incremental, reconstruido, reporte };
++  }
++  async function inicializar(uid, iglesiaId) {
++    c.entorno(); return db.runTransaction(async tx => {
++      const o = await observar(tx, uid, iglesiaId);
++      exigir(!o.incremental.exists, 'NO_REINICIALIZAR_PROYECCIONES');
++      exigir(o.p.data().epoca === 1 && o.reporte.estado === 'SIN_DIFERENCIAS_OBSERVADAS', 'CONCILIACION_REQUERIDA');
++      const valor = c.sellar({ versionEsquema: 1, iglesiaId, epoca: 2, estadoVerificacion: 'VERIFICADA_INICIAL',
++        ...o.reconstruido, verificacionInicial: { corte: o.control.data().ultimaSecuencia,
++          versionControl: c.ver(o.control), reporteDigest: c.hash(o.reporte), certificacionHistorica: false } });
++      tx.create(ref(iglesiaId, 'finanzas_control/incremental_v1'), valor);
++      tx.update(o.p.ref, { epoca: 2, estado: 'operativo_v1' });
++      tx.create(ref(iglesiaId, `finanzas_auditoria/inicio_incremental_v1_${o.control.data().ultimaSecuencia}`), {
++        evento: 'inicializacion_incremental_v1', actorUid: uid, corte: o.control.data().ultimaSecuencia,
++        reporteDigest: valor.verificacionInicial.reporteDigest, certificacionHistorica: false,
++        fechaCreacion: FieldValue.serverTimestamp() });
++      return { estado: 'INCREMENTAL_V1', epoca: 2, corte: o.control.data().ultimaSecuencia, reporte: o.reporte };
++    });
++  }
++  async function conciliar(uid, iglesiaId) {
++    c.entorno(); return db.runTransaction(async tx => (await observar(tx, uid, iglesiaId)).reporte);
++  }
++  async function reanudar(uid, iglesiaId) {
++    c.entorno(); return db.runTransaction(async tx => {
++      const o = await observar(tx, uid, iglesiaId);
++      exigir(o.p.data().epoca === 2 && o.incremental.exists && o.reporte.estado === 'SIN_DIFERENCIAS_OBSERVADAS', 'CONCILIACION_REQUERIDA');
++      tx.update(o.p.ref, { estado: 'operativo_v1' }); return o.reporte;
++    });
++  }
++  async function cambiarPeriodo(uid, iglesiaId, nuevo) {
++    c.entorno(); exigir(periodoValido(nuevo), 'PERIODO_INVALIDO');
++    return db.runTransaction(async tx => {
++      await c.autorizar(db, tx, uid, iglesiaId, 'administrarConfiguracion');
++      const [p, control, incremental, periodo, destino] = await Promise.all([
++        'finanzas_control/protocolo', 'finanzas_control/libro', 'finanzas_control/incremental_v1',
++        'finanzas_control/periodo', `finanzas_resumenes/${nuevo}`].map(r => tx.get(ref(iglesiaId, r))));
++      c.protocolo(p.data(), iglesiaId); const v = c.verificar(incremental.data(), control.data(), iglesiaId);
++      const anterior = v.proyeccion.periodo.periodoId;
++      const resumenAnterior = await tx.get(ref(iglesiaId, `finanzas_resumenes/${anterior}`));
++      exigir(resumenAnterior.exists && resumenAnterior.data().ultimaSecuencia === control.data().ultimaSecuencia &&
++        isDeepStrictEqual(resumenAnterior.data().datos, c.resumen(v)), 'RESUMEN_PROYECCION_DIVERGENTE');
++      exigir(nuevo > anterior && !destino.exists && periodo.data().periodosAbiertos.length === 1 &&
++        periodo.data().periodosAbiertos[0] === anterior, 'PERIODO_NO_AVANZABLE');
++      const ceros = crearProyeccionInicial({ iglesiaId, configuracion: v.proyeccion.configuracion, periodoId: nuevo });
++      const datos = { ...v, proyeccion: { ...v.proyeccion, periodo: { ...ceros.periodo,
++        saldoInicialMinor: v.proyeccion.acumulado.saldoFinalMinor, saldoFinalMinor: v.proyeccion.acumulado.saldoFinalMinor } },
++      cuentas: Object.fromEntries(Object.entries(v.cuentas).map(([id, saldo]) => [id, { ...saldo, periodoId: nuevo,
++        saldoInicialPeriodoMinor: saldo.saldoMinor, saldoFinalPeriodoMinor: saldo.saldoMinor }])) };
++      tx.update(incremental.ref, c.sellar(datos)); tx.update(periodo.ref, { periodosAbiertos: [nuevo] });
++      tx.create(destino.ref, { versionEsquema: 1, iglesiaId, periodoId: nuevo, datos: c.resumen(datos),
++        ultimaSecuencia: control.data().ultimaSecuencia, fechaActualizacion: FieldValue.serverTimestamp() });
++      tx.create(ref(iglesiaId, `finanzas_auditoria/periodo_incremental_${nuevo}`), {
++        evento: 'cambio_periodo_v1', actorUid: uid, anterior, nuevo, fechaCreacion: FieldValue.serverTimestamp() });
++    });
++  }
++  return { pausar, inicializar, conciliar, reanudar, cambiarPeriodo };
++}
++module.exports = { crearMantenimiento };
+diff --git a/functions/finanzas_v1/solicitudes.js b/functions/finanzas_v1/solicitudes.js
+new file mode 100644
+index 0000000..ec7621c
+--- /dev/null
++++ b/functions/finanzas_v1/solicitudes.js
+@@ -0,0 +1,88 @@
++'use strict';
++// Captura de intención y envoltura Auth extraídas sin cambiar contratos ni recibos.
++const { LIMITES } = require('../finanzas_core/adaptador_firestore');
++const { exigirPermisoContable } = require('../finanzas_core/autorizacion');
++const { exigir, registroExacto, ErrorContable } = require('../finanzas_core/dinero');
++const { createHash } = require('node:crypto');
++const { entorno } = require('./entorno');
++const version = s => { exigir(s.exists && s.updateTime, 'CONFIGURACION_REQUERIDA'); return `${s.updateTime.seconds}:${s.updateTime.nanoseconds}`; };
++const id = v => exigir(typeof v === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(v), 'ID_INVALIDO');
++function canon(v) { return v && typeof v === 'object' ? Array.isArray(v) ? `[${v.map(canon).join(',')}]` :
++  `{${Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canon(v[k])).join(',')}}` : JSON.stringify(v); }
++const huella = v => createHash('sha256').update(canon(v)).digest('hex');
++const permisos = { crearCuenta: 'administrarCatalogos', crearCategoria: 'administrarCatalogos',
++  apertura: 'registrarAjustes', ingreso: 'registrarIngresosGastos', gasto: 'registrarIngresosGastos',
++  transferencia: 'transferir', reversion: 'anularMovimientos', ajuste: 'registrarAjustes' };
++
++function crearSolicitudes({ db, HttpsError, adaptador }) {
++  const adapter = adaptador;
++  // Todos los documentos de autorización se leen dentro del mismo intento.
++  async function contexto(tx, uid, permiso = 'leer') {
++    const actorS = await tx.get(db.doc(`usuarios_globales/${uid}`)), actor = actorS.data();
++    exigir(actor && typeof actor.iglesiaId === 'string', 'CONTABILIDAD_NO_AUTORIZADA'); id(actor.iglesiaId);
++    const iglesiaId = actor.iglesiaId, base = `iglesias/${iglesiaId}`;
++    const [iglesiaS, accesoS] = await Promise.all([tx.get(db.doc(base)), tx.get(db.doc(`${base}/finanzas_config/acceso`))]);
++    const iglesia = iglesiaS.data(); exigir(iglesia && typeof iglesia.adminUid === 'string', 'CONTABILIDAD_NO_AUTORIZADA'); id(iglesia.adminUid);
++    const titularS = iglesia.adminUid === uid ? actorS : await tx.get(db.doc(`usuarios_globales/${iglesia.adminUid}`));
++    const resultado = exigirPermisoContable({ auth: { uid }, iglesiaId,
++      perfilActor: { id: uid, datos: actor }, iglesia: { id: iglesiaId, datos: iglesia },
++      perfilTitular: { id: iglesia.adminUid, datos: titularS.data() },
++      acceso: { id: 'acceso', iglesiaId, version: version(accesoS), datos: accesoS.data() },
++      pertenenciaIdEsperada: actor.pertenenciaId, versionAccesoEsperada: version(accesoS) }, permiso);
++    return { iglesiaId, base, actor, iglesiaS, accesoS, permisos: resultado.permisos,
++      contexto: { iglesiaId, pertenenciaId: actor.pertenenciaId } };
++  }
++  async function ejecutar(uid, data) {
++    registroExacto(data, ['solicitudId', 'contexto', 'operacion', 'campos']);
++    exigir(/^[A-Za-z0-9_-]{16,128}$/.test(data.solicitudId), 'SOLICITUD_ID_INVALIDA');
++    exigir(Object.hasOwn(permisos, data.operacion), 'OPERACION_NO_IMPLEMENTADA');
++    exigir(Buffer.byteLength(JSON.stringify(data)) <= LIMITES.bytesSolicitud, 'SOLICITUD_DEMASIADO_GRANDE');
++    const op = data.operacion, campos = data.campos, catalogo = ['crearCuenta', 'crearCategoria'].includes(op);
++    const requeridos = op === 'crearCuenta' ? ['cuenta'] : op === 'crearCategoria' ? ['categoria'] :
++      op === 'transferencia' ? ['origenId', 'destinoId', 'montoMinor', 'fechaContable'] :
++      op === 'reversion' ? ['originalId', 'fechaContable', 'motivo', 'referenciaAuditoria'] :
++      op === 'ajuste' ? ['cuentaId', 'deltaMinor', 'fechaContable', 'motivo', 'referenciaAuditoria'] :
++      ['cuentaId', 'montoMinor', 'fechaContable', ...(['ingreso', 'gasto'].includes(op) ? ['categoriaId'] : [])];
++    registroExacto(campos, requeridos, ['ingreso', 'gasto', 'apertura'].includes(op) ? ['descripcion'] : []);
++    const entrada = await db.runTransaction(async tx => {
++      const c = await contexto(tx, uid, permisos[op]);
++      exigir(canon(data.contexto) === canon(c.contexto), 'PERTENENCIA_ANTERIOR');
++      const intentRef = db.doc(`finanzas_mvp_solicitudes/${uid}/solicitudes/${data.solicitudId}`);
++      const anterior = await tx.get(intentRef), fingerprint = huella(data);
++      if (anterior.exists) { exigir(anterior.data().huella === fingerprint, 'SOLICITUD_ID_REUTILIZADA'); return anterior.data().entrada; }
++      const [config, periodo] = await Promise.all(['finanzas_config/contabilidad', 'finanzas_control/periodo'].map(r => tx.get(db.doc(`${c.base}/${r}`))));
++      const precondiciones = { pertenenciaId: c.actor.pertenenciaId, acceso: version(c.accesoS), iglesia: version(c.iglesiaS), configuracion: version(config), controlPeriodo: version(periodo) };
++      const vers = async (nombre, key) => { id(key); return version(await tx.get(db.doc(`${c.base}/${nombre}/${key}`))); };
++      if (['ingreso', 'gasto'].includes(op)) precondiciones.categoria = await vers('finanzas_categorias', campos.categoriaId);
++      if (['ingreso', 'gasto', 'apertura'].includes(op)) precondiciones.cuenta = await vers('finanzas_cuentas', campos.cuentaId);
++      if (['transferencia', 'ajuste', 'reversion'].includes(op)) {
++        let ids;
++        if (op === 'reversion') {
++          id(campos.originalId);
++          const original = await tx.get(db.doc(`${c.base}/finanzas_movimientos/${campos.originalId}`));
++          const reversa = await tx.get(db.doc(`${c.base}/finanzas_reversiones/${campos.originalId}`));
++          precondiciones.original = { version: version(original), versionReversion: reversa.exists ? version(reversa) : null };
++          ids = original.data().movimiento.asientos.map(a => a.cuentaId);
++        } else ids = op === 'ajuste' ? [campos.cuentaId] : [campos.origenId, campos.destinoId];
++        precondiciones.cuentas = await Promise.all(ids.map(async cuentaId => ({ cuentaId, version: await vers('finanzas_cuentas', cuentaId) })));
++      }
++      const entrada = { auth: { uid }, operacion: op, solicitud: { ...campos, versionEsquema: 1,
++        solicitudId: data.solicitudId, iglesiaId: c.iglesiaId, periodoId: catalogo ? periodo.data().periodosAbiertos[0] : campos.fechaContable.slice(0, 7), precondiciones } };
++      tx.create(intentRef, { huella: fingerprint, entrada }); // Inmutable: jamás regenerar precondiciones al reintentar.
++      return entrada;
++    });
++    return adapter.ejecutar(entrada);
++  }
++  function callable(fn) { return async request => {
++    entorno();
++    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicia sesión.');
++    try { id(request.auth.uid); return await fn(request.auth.uid, request.data); }
++    catch (e) {
++      if (e instanceof ErrorContable) throw new HttpsError(e.codigo === 'CONTABILIDAD_NO_AUTORIZADA' ? 'permission-denied' :
++        e.codigo === 'RESULTADO_INCIERTO' ? 'unavailable' : 'failed-precondition', e.codigo, { codigo: e.codigo });
++      throw new HttpsError('unavailable', 'Resultado incierto. Recupera la misma solicitud.');
++    }
++  }; }
++  return { contexto, callable, ejecutar: callable(ejecutar) };
++}
++module.exports = { crearSolicitudes, PERMISOS_OPERACION: Object.freeze(permisos), version, id, canon };
+diff --git a/functions/test/finanzas_consolidacion.test.js b/functions/test/finanzas_consolidacion.test.js
+new file mode 100644
+index 0000000..f383902
+--- /dev/null
++++ b/functions/test/finanzas_consolidacion.test.js
+@@ -0,0 +1,50 @@
++'use strict';
++const test = require('node:test'), assert = require('node:assert/strict');
++const fs = require('node:fs'), path = require('node:path');
++const raiz = path.resolve(__dirname,'..');
++
++test('Consolidación: cierre de publicación y mantenimiento no importa rutas de pruebas ni fixtures', () => {
++  const vistos = new Set();
++  function visitar(archivo) {
++    archivo = require.resolve(archivo);
++    if(vistos.has(archivo)) return; vistos.add(archivo);
++    assert.equal(archivo.startsWith(path.join(raiz,'test')+path.sep),false,archivo);
++    const texto = fs.readFileSync(archivo,'utf8');
++    const imports = [...texto.matchAll(/require\(['"]([^'"]+)['"]\)/g)];
++    assert.equal((texto.match(/require\(/g)||[]).length,imports.length,'Imports estáticos: '+archivo);
++    assert.equal(/\bimport\s*\(/.test(texto),false);
++    assert.equal(texto.includes('finanzas_mvp_fixtures'),false,'Sin inicializador demo: '+archivo);
++    for(const [,nombre] of imports) if(nombre.startsWith('.')) visitar(path.resolve(path.dirname(archivo),nombre));
++  }
++  visitar(path.join(raiz,'finanzas_publicacion.js'));
++  visitar(path.join(raiz,'finanzas_v1/mantenimiento.js'));
++  assert.ok(vistos.has(path.join(raiz,'finanzas_core/proyecciones.js')));
++  assert.ok(vistos.has(path.join(raiz,'finanzas_core/conciliacion.js')));
++  assert.ok(vistos.has(path.join(raiz,'finanzas_core/autorizacion.js')));
++});
++
++test('Consolidación: rutas anteriores delegan a los mismos módulos; API incremental no expone inicialización', () => {
++  for(const nombre of ['api','adaptador','catalogos','comun','mantenimiento']) {
++    assert.equal(require('./finanzas_v1_incremental/'+nombre),require('../finanzas_v1/'+nombre));
++  }
++  const {crearApiIncremental} = require('../finanzas_v1/api');
++  assert.deepEqual(Object.keys(crearApiIncremental({db:null})).sort(),['consultar','ejecutar']);
++});
++
++test('Árbol nuevo rechazado como admin-6: no hereda identidad ni capacidad histórica', () => {
++  const {obtenerContextoFuentes} = require('../contabilidad_demo/fuentes');
++  assert.throws(()=>obtenerContextoFuentes('admin-6'),e=>e.codigo==='DEMO_FUENTES_NO_ACREDITADAS');
++  const {autorizarAdministrativo} = require('../contabilidad_preparacion_v2_admin_demo/runtime');
++  assert.throws(()=>autorizarAdministrativo({inventarioId:'admin-6'}),e=>e.codigo==='DEMO_FUENTES_NO_ACREDITADAS');
++});
++
++test('Fixture admin-6 usa index original autorizado; no sustituye el index de publicación', () => {
++  const {createHash} = require('node:crypto'),sha=b=>createHash('sha256').update(b).digest('hex');
++  const original=fs.readFileSync(path.join(__dirname,'fixtures/index_admin6.js.txt'));
++  const mapa=JSON.parse(fs.readFileSync(path.join(raiz,'contabilidad_demo/fuentes_v1.json')));
++  assert.equal(sha(original),mapa['index.js']);
++  assert.notEqual(sha(fs.readFileSync(path.join(raiz,'index.js'))),mapa['index.js']);
++  const historico=require('./soporte/runtime_historico').cargarHistorico();
++  assert.notEqual(historico.raiz,raiz);
++  assert.equal(historico.identidad.huellaSoftware,'16d281e09313a4a6f80f37b4d686d70fa5135e1e43e120ed91923bf5393b92e1');
++});
+diff --git a/functions/test/fixtures/README.md b/functions/test/fixtures/README.md
+new file mode 100644
+index 0000000..43d155a
+--- /dev/null
++++ b/functions/test/fixtures/README.md
+@@ -0,0 +1,15 @@
++# Fuente histórica de index.js
++
++`index_admin6.js.txt` contiene los bytes anteriores a FIN-RELEASE-3, recuperados
++del respaldo verificable `fesync-fin-release3-20261025002720/files/functions/index.js`.
++Su SHA-256 es el **ya existente** en `contabilidad_demo/fuentes_v1.json`:
++`94cdbd1b987a70a13be6e608347da962de877300ee3a1d7dd3e8d1ad67868f23`.
++
++El helper de pruebas construye un árbol histórico temporal con las demás fuentes
++solo si coinciden con los hashes existentes. El verificador original debe validar
++el conjunto completo y la identidad admin-6. No se ejecuta este index ni se carga
++desde los callables. No es otro motor, inventario o acreditación: es una fixture
++de bytes históricos para probar las identidades y checkpoints anteriores.
++
++El árbol normal sigue rechazado por las guardas históricas. Ningún byte nuevo se
++acepta como antiguo; tampoco se parchean los verificadores o módulos V2.
+diff --git a/functions/test/fixtures/index_admin6.js.txt b/functions/test/fixtures/index_admin6.js.txt
+new file mode 100644
+index 0000000..6434c9f
+--- /dev/null
++++ b/functions/test/fixtures/index_admin6.js.txt
+@@ -0,0 +1,2021 @@
++const {
++  onDocumentCreated,
++  onDocumentUpdated,
++} = require('firebase-functions/v2/firestore');
++
++const {
++  setGlobalOptions,
++} = require('firebase-functions/v2');
++
++const {
++  initializeApp,
++} = require('firebase-admin/app');
++
++const {
++  getFirestore,
++  FieldValue,
++} = require('firebase-admin/firestore');
++
++const {
++  getMessaging,
++} = require('firebase-admin/messaging');
++
++initializeApp();
++
++setGlobalOptions({
++  region: 'southamerica-west1',
++  memory: '256MiB',
++});
++
++const db = getFirestore();
++
++/*
++ * ============================================================
++ * USUARIOS
++ * ============================================================
++ */
++
++function limpiarUids(uids) {
++  return [
++    ...new Set(
++      (uids ?? [])
++        .map((uid) => String(uid ?? '').trim())
++        .filter((uid) => uid.length > 0),
++    ),
++  ];
++}
++
++async function obtenerUsuariosIglesia(iglesiaId) {
++  const snapshot = await db
++    .collection('usuarios_globales')
++    .where('iglesiaId', '==', iglesiaId)
++    .get();
++
++  return snapshot.docs;
++}
++
++async function obtenerUsuariosPorUids(
++  iglesiaId,
++  uids,
++) {
++  const uidsUnicos = limpiarUids(uids);
++
++  if (uidsUnicos.length === 0) {
++    return [];
++  }
++
++  const resultados = await Promise.all(
++    uidsUnicos.map(async (uid) => {
++      const doc = await db
++        .collection('usuarios_globales')
++        .doc(uid)
++        .get();
++
++      if (!doc.exists) {
++        console.log(
++          `Usuario ${uid} no existe.`,
++        );
++
++        return null;
++      }
++
++      const data = doc.data();
++
++      if (
++        data?.iglesiaId?.toString() !==
++        iglesiaId
++      ) {
++        console.log(
++          `Usuario ${uid} no pertenece a iglesia ${iglesiaId}.`,
++        );
++
++        return null;
++      }
++
++      return doc;
++    }),
++  );
++
++  return resultados.filter(
++    (doc) => doc !== null,
++  );
++}
++
++/*
++ * ============================================================
++ * CONTADORES PENDIENTES
++ * ============================================================
++ */
++
++async function incrementarContadores({
++  usuarios,
++  modulo,
++  cantidad = 1,
++}) {
++  if (
++    !usuarios ||
++    usuarios.length === 0
++  ) {
++    return;
++  }
++
++  /*
++   * Firestore admite hasta 500 operaciones
++   * por batch. Dejamos margen usando 400.
++   */
++  const tamanoBloque = 400;
++
++  for (
++    let inicio = 0;
++    inicio < usuarios.length;
++    inicio += tamanoBloque
++  ) {
++    const bloque = usuarios.slice(
++      inicio,
++      inicio + tamanoBloque,
++    );
++
++    const batch = db.batch();
++
++    for (const usuarioDoc of bloque) {
++      batch.update(
++        usuarioDoc.ref,
++        {
++          [`notificacionesPendientes.${modulo}`]:
++            FieldValue.increment(cantidad),
++        },
++      );
++    }
++
++    await batch.commit();
++  }
++
++  console.log(
++    `Pendientes ${modulo}: +${cantidad} para ${usuarios.length} usuario(s).`,
++  );
++}
++
++async function incrementarPendientesIglesia(
++  iglesiaId,
++  modulo,
++) {
++  const usuarios =
++    await obtenerUsuariosIglesia(
++      iglesiaId,
++    );
++
++  await incrementarContadores({
++    usuarios,
++    modulo,
++  });
++}
++
++async function incrementarPendientesUsuarios(
++  iglesiaId,
++  uids,
++  modulo,
++) {
++  const usuarios =
++    await obtenerUsuariosPorUids(
++      iglesiaId,
++      uids,
++    );
++
++  await incrementarContadores({
++    usuarios,
++    modulo,
++  });
++}
++
++/*
++ * ============================================================
++ * TOKENS FCM
++ * ============================================================
++ */
++
++async function agregarTokensUsuario(
++  usuarioDoc,
++  tokens,
++) {
++  const usuario = usuarioDoc.data();
++
++  if (!usuario) {
++    return;
++  }
++
++  const dispositivosSnapshot =
++    await usuarioDoc.ref
++      .collection('dispositivos')
++      .where('activo', '==', true)
++      .get();
++
++  for (
++    const dispositivoDoc
++    of dispositivosSnapshot.docs
++  ) {
++    const dispositivo =
++      dispositivoDoc.data();
++
++    const token =
++      dispositivo.token
++        ?.toString()
++        .trim();
++
++    if (!token) {
++      continue;
++    }
++
++    tokens.set(
++      token,
++      {
++        token,
++        dispositivoRef:
++          dispositivoDoc.ref,
++        usuarioRef:
++          usuarioDoc.ref,
++        legacy: false,
++      },
++    );
++  }
++
++  /*
++   * Compatibilidad temporal con
++   * instalaciones antiguas.
++   */
++  const legacyToken =
++    usuario.fcmToken
++      ?.toString()
++      .trim();
++
++  if (
++    legacyToken &&
++    !tokens.has(legacyToken)
++  ) {
++    tokens.set(
++      legacyToken,
++      {
++        token: legacyToken,
++        dispositivoRef: null,
++        usuarioRef:
++          usuarioDoc.ref,
++        legacy: true,
++      },
++    );
++  }
++}
++
++async function obtenerDestinatarios(
++  iglesiaId,
++) {
++  const usuarios =
++    await obtenerUsuariosIglesia(
++      iglesiaId,
++    );
++
++  const tokens = new Map();
++
++  await Promise.all(
++    usuarios.map(
++      async (usuarioDoc) => {
++        await agregarTokensUsuario(
++          usuarioDoc,
++          tokens,
++        );
++      },
++    ),
++  );
++
++  return [...tokens.values()];
++}
++
++async function obtenerDestinatariosPorUids(
++  iglesiaId,
++  uids,
++) {
++  const usuarios =
++    await obtenerUsuariosPorUids(
++      iglesiaId,
++      uids,
++    );
++
++  const tokens = new Map();
++
++  await Promise.all(
++    usuarios.map(
++      async (usuarioDoc) => {
++        await agregarTokensUsuario(
++          usuarioDoc,
++          tokens,
++        );
++      },
++    ),
++  );
++
++  return [...tokens.values()];
++}
++
++/*
++ * ============================================================
++ * LIMPIEZA DE TOKENS INVÁLIDOS
++ * ============================================================
++ */
++
++function tokenDebeEliminarse(errorCode) {
++  return (
++    errorCode ===
++      'messaging/registration-token-not-registered' ||
++    errorCode ===
++      'messaging/invalid-registration-token'
++  );
++}
++
++async function limpiarTokenInvalido(destino) {
++  // Comparar en transacción: una respuesta FCM tardía no debe borrar
++  // un token renovado durante el envío, ni en dispositivo ni en perfil legado.
++  const { limpiarTokenSiCoincide } = require('./fcm_limpieza');
++  await limpiarTokenSiCoincide(destino, { db, FieldValue });
++}
++
++/*
++ * ============================================================
++ * ENVÍO FCM
++ * ============================================================
++ */
++
++async function enviarNotificacionDestinos({
++  destinos,
++  iglesiaId,
++  titulo,
++  cuerpo,
++  data,
++}) {
++  if (destinos.length === 0) {
++    console.log(
++      `No hay tokens FCM para iglesia ${iglesiaId}.`,
++    );
++
++    return {
++      successCount: 0,
++      failureCount: 0,
++    };
++  }
++
++  const respuesta =
++    await getMessaging()
++      .sendEachForMulticast({
++        tokens:
++          destinos.map(
++            (destino) =>
++              destino.token,
++          ),
++
++        notification: {
++          title: titulo,
++          body: cuerpo,
++        },
++
++        data: {
++          iglesiaId,
++          ...data,
++        },
++
++        android: {
++          priority: 'high',
++        },
++
++        webpush: {
++          notification: {
++            icon:
++              '/icons/Icon-192.png',
++            badge:
++              '/icons/Icon-192.png',
++          },
++        },
++      });
++
++  console.log(
++    `Éxito: se enviaron ${respuesta.successCount} notificaciones.`,
++  );
++
++  if (
++    respuesta.failureCount > 0
++  ) {
++    console.log(
++      `Fallaron ${respuesta.failureCount} notificaciones.`,
++    );
++
++    const limpiezas = [];
++
++    respuesta.responses.forEach(
++      (
++        resultado,
++        index,
++      ) => {
++        if (resultado.success) {
++          return;
++        }
++
++        const errorCode =
++          resultado.error?.code ??
++          'error desconocido';
++
++        console.log(
++          `Token ${index}: ${errorCode}`,
++        );
++
++        if (
++          tokenDebeEliminarse(
++            errorCode,
++          )
++        ) {
++          limpiezas.push(
++            limpiarTokenInvalido(
++              destinos[index],
++            ),
++          );
++        }
++      },
++    );
++
++    await Promise.all(
++      limpiezas,
++    );
++  }
++
++  return respuesta;
++}
++
++async function enviarNotificacionIglesia({
++  iglesiaId,
++  titulo,
++  cuerpo,
++  data,
++}) {
++  const destinos =
++    await obtenerDestinatarios(
++      iglesiaId,
++    );
++
++  return enviarNotificacionDestinos({
++    destinos,
++    iglesiaId,
++    titulo,
++    cuerpo,
++    data,
++  });
++}
++
++async function enviarNotificacionUsuarios({
++  iglesiaId,
++  uids,
++  titulo,
++  cuerpo,
++  data,
++}) {
++  const destinos =
++    await obtenerDestinatariosPorUids(
++      iglesiaId,
++      uids,
++    );
++
++  return enviarNotificacionDestinos({
++    destinos,
++    iglesiaId,
++    titulo,
++    cuerpo,
++    data,
++  });
++}
++
++/*
++ * ============================================================
++ * UTILIDADES
++ * ============================================================
++ */
++
++function recortarTexto(
++  valor,
++  maximo = 120,
++) {
++  const texto =
++    String(valor ?? '').trim();
++
++  if (!texto) {
++    return '';
++  }
++
++  if (texto.length <= maximo) {
++    return texto;
++  }
++
++  return `${texto.substring(
++    0,
++    maximo - 3,
++  )}...`;
++}
++
++function obtenerUidsAsignados(
++  turno,
++) {
++  const asignaciones =
++    Array.isArray(
++      turno?.asignaciones,
++    )
++      ? turno.asignaciones
++      : [];
++
++  return limpiarUids(
++    asignaciones.map(
++      (asignacion) =>
++        asignacion?.usuarioUid,
++    ),
++  );
++}
++
++function obtenerNuevosUidsAsignados(
++  turnoAntes,
++  turnoDespues,
++) {
++  const antes =
++    new Set(
++      obtenerUidsAsignados(
++        turnoAntes,
++      ),
++    );
++
++  return obtenerUidsAsignados(
++    turnoDespues,
++  ).filter(
++    (uid) => !antes.has(uid),
++  );
++}
++
++function obtenerClasesNuevas(
++  moduloAntes,
++  moduloDespues,
++) {
++  const clasesAntes =
++    Array.isArray(
++      moduloAntes?.clases,
++    )
++      ? moduloAntes.clases
++      : [];
++
++  const clasesDespues =
++    Array.isArray(
++      moduloDespues?.clases,
++    )
++      ? moduloDespues.clases
++      : [];
++
++  const idsAntes =
++    new Set(
++      clasesAntes
++        .map(
++          (clase) =>
++            clase?.id
++              ?.toString()
++              .trim() ??
++            '',
++        )
++        .filter(
++          (id) => id.length > 0,
++        ),
++    );
++
++  return clasesDespues.filter(
++    (clase) => {
++      const id =
++        clase?.id
++          ?.toString()
++          .trim() ??
++        '';
++
++      return (
++        id.length > 0 &&
++        !idsAntes.has(id)
++      );
++    },
++  );
++}
++
++/*
++ * ============================================================
++ * COMUNIDAD
++ * ============================================================
++ */
++
++exports.notificarNuevoMuro =
++  onDocumentCreated(
++    'iglesias/{iglesiaId}/muro_comunidad/{publicacionId}',
++    async (event) => {
++      const snapshot =
++        event.data;
++
++      if (!snapshot) {
++        return;
++      }
++
++      const publicacion =
++        snapshot.data();
++
++      const iglesiaId =
++        event.params.iglesiaId;
++
++      const publicacionId =
++        event.params.publicacionId;
++
++      const autorNombre =
++        publicacion.autorNombre
++          ?.toString() ??
++        'Un miembro';
++
++      const autorUid =
++        publicacion.autorUid
++          ?.toString() ??
++        '';
++
++      const contenido =
++        recortarTexto(
++          publicacion.contenido,
++        );
++
++      const tipo =
++        publicacion.tipo
++          ?.toString() ??
++        'publicacion';
++
++      let titulo =
++        'Nueva publicación';
++
++      if (tipo === 'aviso') {
++        titulo =
++          'Nuevo aviso';
++      }
++
++      if (tipo === 'peticion') {
++        titulo =
++          'Nueva petición';
++      }
++
++      await incrementarPendientesIglesia(
++        iglesiaId,
++        'comunidades',
++      );
++
++      await enviarNotificacionIglesia({
++        iglesiaId,
++        titulo:
++          `${titulo} · ${autorNombre}`,
++        cuerpo:
++          contenido ||
++          'Hay una nueva publicación en Comunidad.',
++        data: {
++          tipo:
++            'muro_comunidad',
++          publicacionId,
++          autorUid,
++        },
++      });
++    },
++  );
++
++/*
++ * ============================================================
++ * AGENDA
++ * ============================================================
++ */
++
++exports.notificarNuevoEventoAgenda =
++  onDocumentCreated(
++    'iglesias/{iglesiaId}/agenda_eventos/{eventoId}',
++    async (event) => {
++      const snapshot =
++        event.data;
++
++      if (!snapshot) {
++        return;
++      }
++
++      const evento =
++        snapshot.data();
++
++      const iglesiaId =
++        event.params.iglesiaId;
++
++      const eventoId =
++        event.params.eventoId;
++
++      const tituloEvento =
++        evento.titulo
++          ?.toString() ??
++        'Nuevo evento';
++
++      const fecha =
++        evento.fecha
++          ?.toString() ??
++        '';
++
++      const hora =
++        evento.hora
++          ?.toString() ??
++        '';
++
++      const lugar =
++        evento.lugar
++          ?.toString() ??
++        '';
++
++      const detalles = [
++        fecha,
++        hora,
++        lugar,
++      ]
++        .filter(
++          (valor) =>
++            valor.trim().length > 0,
++        )
++        .join(' · ');
++
++      await incrementarPendientesIglesia(
++        iglesiaId,
++        'agenda',
++      );
++
++      await enviarNotificacionIglesia({
++        iglesiaId,
++        titulo:
++          `Nuevo evento · ${tituloEvento}`,
++        cuerpo:
++          detalles.length > 0
++            ? detalles
++            : 'Hay una nueva actividad en la agenda.',
++        data: {
++          tipo: 'agenda',
++          eventoId,
++        },
++      });
++    },
++  );
++
++/*
++ * ============================================================
++ * SERVIDORES
++ * ============================================================
++ */
++
++exports.notificarNuevoTurno =
++  onDocumentCreated(
++    'iglesias/{iglesiaId}/turnos_servicio/{turnoId}',
++    async (event) => {
++      const snapshot =
++        event.data;
++
++      if (!snapshot) {
++        return;
++      }
++
++      const turno =
++        snapshot.data();
++
++      const iglesiaId =
++        event.params.iglesiaId;
++
++      const turnoId =
++        event.params.turnoId;
++
++      const tituloTurno =
++        turno.titulo
++          ?.toString() ??
++        'Nuevo turno';
++
++      const fecha =
++        turno.fecha
++          ?.toString() ??
++        '';
++
++      const uidsAsignados =
++        obtenerUidsAsignados(
++          turno,
++        );
++
++      if (
++        uidsAsignados.length === 0
++      ) {
++        console.log(
++          'Turno sin usuarios asignados.',
++        );
++
++        return;
++      }
++
++      await incrementarPendientesUsuarios(
++        iglesiaId,
++        uidsAsignados,
++        'servidores',
++      );
++
++      await enviarNotificacionUsuarios({
++        iglesiaId,
++        uids:
++          uidsAsignados,
++        titulo:
++          'Nuevo turno de servicio',
++        cuerpo:
++          fecha.length > 0
++            ? `${tituloTurno} · ${fecha}`
++            : tituloTurno,
++        data: {
++          tipo:
++            'servidores',
++          turnoId,
++        },
++      });
++    },
++  );
++
++exports.notificarNuevaAsignacionTurno =
++  onDocumentUpdated(
++    'iglesias/{iglesiaId}/turnos_servicio/{turnoId}',
++    async (event) => {
++      const before =
++        event.data?.before;
++
++      const after =
++        event.data?.after;
++
++      if (
++        !before ||
++        !after
++      ) {
++        return;
++      }
++
++      const turnoAntes =
++        before.data();
++
++      const turnoDespues =
++        after.data();
++
++      const nuevosUids =
++        obtenerNuevosUidsAsignados(
++          turnoAntes,
++          turnoDespues,
++        );
++
++      if (
++        nuevosUids.length === 0
++      ) {
++        return;
++      }
++
++      const iglesiaId =
++        event.params.iglesiaId;
++
++      const turnoId =
++        event.params.turnoId;
++
++      const tituloTurno =
++        turnoDespues.titulo
++          ?.toString() ??
++        'Turno de servicio';
++
++      const fecha =
++        turnoDespues.fecha
++          ?.toString() ??
++        '';
++
++      await incrementarPendientesUsuarios(
++        iglesiaId,
++        nuevosUids,
++        'servidores',
++      );
++
++      await enviarNotificacionUsuarios({
++        iglesiaId,
++        uids:
++          nuevosUids,
++        titulo:
++          'Nueva asignación de servicio',
++        cuerpo:
++          fecha.length > 0
++            ? `${tituloTurno} · ${fecha}`
++            : tituloTurno,
++        data: {
++          tipo:
++            'servidores',
++          turnoId,
++        },
++      });
++    },
++  );
++
++/*
++ * ============================================================
++ * CAPACITACIONES
++ * ============================================================
++ */
++
++exports.notificarNuevaCapacitacion =
++  onDocumentCreated(
++    'iglesias/{iglesiaId}/capacitaciones/{capacitacionId}',
++    async (event) => {
++      const snapshot =
++        event.data;
++
++      if (!snapshot) {
++        return;
++      }
++
++      const capacitacion =
++        snapshot.data();
++
++      const iglesiaId =
++        event.params.iglesiaId;
++
++      const capacitacionId =
++        event.params.capacitacionId;
++
++      const tituloCapacitacion =
++        capacitacion.titulo
++          ?.toString()
++          .trim() ||
++        'Nueva capacitación';
++
++      const descripcion =
++        recortarTexto(
++          capacitacion.descripcion,
++        );
++
++      const tipo =
++        capacitacion.tipo
++          ?.toString()
++          .trim() ??
++        '';
++
++      let cuerpo =
++        descripcion;
++
++      if (!cuerpo) {
++        if (tipo === 'video') {
++          cuerpo =
++            'Hay un nuevo video de capacitación disponible.';
++        } else if (
++          tipo === 'texto'
++        ) {
++          cuerpo =
++            'Hay una nueva lectura de capacitación disponible.';
++        } else {
++          cuerpo =
++            'Hay nuevo material de capacitación disponible.';
++        }
++      }
++
++      await incrementarPendientesIglesia(
++        iglesiaId,
++        'capacitaciones',
++      );
++
++      await enviarNotificacionIglesia({
++        iglesiaId,
++        titulo:
++          `Nueva capacitación · ${tituloCapacitacion}`,
++        cuerpo,
++        data: {
++          tipo:
++            'capacitaciones',
++          capacitacionId,
++        },
++      });
++    },
++  );
++
++/*
++ * ============================================================
++ * ESCUELA BÍBLICA
++ * ============================================================
++ */
++
++exports.notificarNuevoModuloEscuela =
++  onDocumentCreated(
++    'iglesias/{iglesiaId}/escuela_modulos/{moduloId}',
++    async (event) => {
++      const snapshot =
++        event.data;
++
++      if (!snapshot) {
++        return;
++      }
++
++      const modulo =
++        snapshot.data();
++
++      const iglesiaId =
++        event.params.iglesiaId;
++
++      const moduloId =
++        event.params.moduloId;
++
++      const tituloModulo =
++        modulo.titulo
++          ?.toString()
++          .trim() ||
++        'Nuevo módulo';
++
++      const descripcion =
++        recortarTexto(
++          modulo.descripcion,
++        );
++
++      await incrementarPendientesIglesia(
++        iglesiaId,
++        'escuela',
++      );
++
++      await enviarNotificacionIglesia({
++        iglesiaId,
++        titulo:
++          `Escuela Bíblica · ${tituloModulo}`,
++        cuerpo:
++          descripcion ||
++          'Hay un nuevo módulo disponible en Escuela Bíblica.',
++        data: {
++          tipo:
++            'escuela',
++          accion:
++            'nuevo_modulo',
++          moduloId,
++        },
++      });
++    },
++  );
++
++exports.notificarNuevaClaseEscuela =
++  onDocumentUpdated(
++    'iglesias/{iglesiaId}/escuela_modulos/{moduloId}',
++    async (event) => {
++      const before =
++        event.data?.before;
++
++      const after =
++        event.data?.after;
++
++      if (
++        !before ||
++        !after
++      ) {
++        return;
++      }
++
++      const moduloAntes =
++        before.data();
++
++      const moduloDespues =
++        after.data();
++
++      const clasesNuevas =
++        obtenerClasesNuevas(
++          moduloAntes,
++          moduloDespues,
++        );
++
++      if (
++        clasesNuevas.length === 0
++      ) {
++        return;
++      }
++
++      const iglesiaId =
++        event.params.iglesiaId;
++
++      const moduloId =
++        event.params.moduloId;
++
++      const tituloModulo =
++        moduloDespues.titulo
++          ?.toString()
++          .trim() ||
++        'Escuela Bíblica';
++
++      const primeraClase =
++        clasesNuevas[0];
++
++      const claseId =
++        primeraClase.id
++          ?.toString()
++          .trim() ??
++        '';
++
++      const tituloClase =
++        primeraClase.titulo
++          ?.toString()
++          .trim() ||
++        'Nueva clase';
++
++      let cuerpo;
++
++      if (
++        clasesNuevas.length === 1
++      ) {
++        cuerpo =
++          `${tituloModulo} · ${tituloClase}`;
++      } else {
++        cuerpo =
++          `${tituloModulo} · `
++          + `${clasesNuevas.length} nuevas clases disponibles`;
++      }
++
++      await incrementarPendientesIglesia(
++        iglesiaId,
++        'escuela',
++      );
++
++      await enviarNotificacionIglesia({
++        iglesiaId,
++        titulo:
++          'Nueva clase · Escuela Bíblica',
++        cuerpo,
++        data: {
++          tipo:
++            'escuela',
++          accion:
++            'nueva_clase',
++          moduloId,
++          claseId,
++        },
++      });
++    },
++  );
++
++/*
++ * ============================================================
++ * ADORA LIVE
++ * ============================================================
++ */
++
++exports.notificarNuevoEventoAdora =
++  onDocumentCreated(
++    'iglesias/{iglesiaId}/adora_eventos/{eventoId}',
++    async (event) => {
++      const snapshot =
++        event.data;
++
++      if (!snapshot) {
++        return;
++      }
++
++      const evento =
++        snapshot.data();
++
++      const iglesiaId =
++        event.params.iglesiaId;
++
++      const eventoId =
++        event.params.eventoId;
++
++      const tituloEvento =
++        evento.titulo
++          ?.toString() ??
++        'Nuevo evento';
++
++      const tipoEvento =
++        evento.tipo
++          ?.toString() ??
++        '';
++
++      await incrementarPendientesIglesia(
++        iglesiaId,
++        'adoraLive',
++      );
++
++      await enviarNotificacionIglesia({
++        iglesiaId,
++        titulo:
++          `Adora Live · ${tituloEvento}`,
++        cuerpo:
++          tipoEvento.length > 0
++            ? tipoEvento
++            : 'Hay un nuevo evento del equipo de alabanza.',
++        data: {
++          tipo:
++            'adora_live',
++          eventoId,
++        },
++      });
++    },
++  );
++  /*
++ * ============================================================
++ * ONBOARDING SEGURO
++ * ============================================================
++ */
++
++const {
++  onCall,
++  HttpsError,
++} = require('firebase-functions/v2/https');
++
++exports.consultarEstadoSolicitudIngreso = onCall(
++  async (request) => {
++    const { consultarEstadoSolicitudIngreso } = require('./idempotencia_ingreso');
++    return consultarEstadoSolicitudIngreso(request, { db, HttpsError });
++  },
++);
++
++exports.desvincularMiembroIglesia = onCall(
++  async (request) => {
++    const { desvincularMiembroIglesia } = require('./membresia');
++    return desvincularMiembroIglesia(request, { db, FieldValue, HttpsError });
++  },
++);
++
++exports.consultarEstadoSolicitudDesvinculacion = onCall(
++  async (request) => {
++    const { consultarEstadoSolicitudDesvinculacion } = require('./membresia');
++    return consultarEstadoSolicitudDesvinculacion(request, { db, HttpsError });
++  },
++);
++
++exports.recuperarContextoSolicitudDesvinculacion = onCall(
++  async (request) => {
++    const { recuperarContextoSolicitudDesvinculacion } = require('./membresia');
++    return recuperarContextoSolicitudDesvinculacion(request, { db, HttpsError });
++  },
++);
++
++exports.obtenerContextoCambioRolMiembro = onCall(
++  async (request) => {
++    const { obtenerContextoCambioRolMiembro } = require('./roles');
++    return obtenerContextoCambioRolMiembro(request, { db, HttpsError });
++  },
++);
++
++exports.actualizarRolMiembro = onCall(
++  async (request) => {
++    const { actualizarRolMiembro } = require('./roles');
++    return actualizarRolMiembro(request, { db, FieldValue, HttpsError });
++  },
++);
++
++exports.actualizarEncargadoFinanciero = onCall(
++  async (request) => {
++    const { actualizarEncargadoFinanciero } = require('./finanzas');
++    return actualizarEncargadoFinanciero(request, { db, FieldValue, HttpsError });
++  },
++);
++
++exports.actualizarEstadoModuloFinanzas = onCall(
++  async (request) => {
++    const { actualizarEstadoModuloFinanzas } = require('./finanzas');
++    return actualizarEstadoModuloFinanzas(request, { db, FieldValue, HttpsError });
++  },
++);
++
++/*
++ * Transfiere la administración principal y ambos roles
++ * de forma atómica, validando al titular dentro de la transacción.
++ */
++exports.transferirAdministracionIglesia = onCall(
++  async (request) => {
++    const uid = request.auth?.uid;
++
++    if (!uid) {
++      throw new HttpsError(
++        'unauthenticated',
++        'Debes iniciar sesión.',
++      );
++    }
++
++    const iglesiaId = request.data?.iglesiaId;
++    const nuevoAdminUid = request.data?.nuevoAdminUid;
++
++    if (
++      typeof iglesiaId !== 'string' ||
++      iglesiaId.trim().length === 0 ||
++      iglesiaId.includes('/') ||
++      typeof nuevoAdminUid !== 'string' ||
++      nuevoAdminUid.trim().length === 0 ||
++      nuevoAdminUid.includes('/')
++    ) {
++      throw new HttpsError(
++        'invalid-argument',
++        'Debes indicar una congregación y un miembro válidos.',
++      );
++    }
++
++    if (nuevoAdminUid === uid) {
++      throw new HttpsError(
++        'invalid-argument',
++        'No puedes transferirte la administración a ti mismo.',
++      );
++    }
++
++    const iglesiaRef = db.collection('iglesias').doc(iglesiaId);
++    const adminActualRef = db.collection('usuarios_globales').doc(uid);
++    const nuevoAdminRef = db.collection('usuarios_globales').doc(nuevoAdminUid);
++
++    await db.runTransaction(async (transaction) => {
++      const iglesiaSnapshot = await transaction.get(iglesiaRef);
++      const adminActualSnapshot = await transaction.get(adminActualRef);
++      const nuevoAdminSnapshot = await transaction.get(nuevoAdminRef);
++
++      if (!iglesiaSnapshot.exists) {
++        throw new HttpsError('not-found', 'La congregación no existe.');
++      }
++
++      if (iglesiaSnapshot.data().adminUid !== uid) {
++        throw new HttpsError(
++          'permission-denied',
++          'Solo el administrador principal puede transferir la administración.',
++        );
++      }
++
++      if (!adminActualSnapshot.exists || !nuevoAdminSnapshot.exists) {
++        throw new HttpsError(
++          'not-found',
++          'El perfil del administrador actual o del nuevo administrador no existe.',
++        );
++      }
++
++      if (
++        adminActualSnapshot.data().iglesiaId !== iglesiaId ||
++        nuevoAdminSnapshot.data().iglesiaId !== iglesiaId
++      ) {
++        throw new HttpsError(
++          'permission-denied',
++          'Ambos usuarios deben pertenecer a esta congregación.',
++        );
++      }
++
++      transaction.update(iglesiaRef, { adminUid: nuevoAdminUid });
++      transaction.update(nuevoAdminRef, { rolGlobal: 'admin_iglesia' });
++      transaction.update(adminActualRef, { rolGlobal: 'lider_area' });
++    });
++
++    return { ok: true, nuevoAdminUid };
++  },
++);
++
++/*
++ * Vincula al usuario autenticado con una iglesia
++ * mediante código de acceso.
++ */
++exports.vincularUsuarioConCodigo = onCall(
++  async (request) => {
++    const uid = request.auth?.uid;
++
++    if (!uid) {
++      throw new HttpsError(
++        'unauthenticated',
++        'Debes iniciar sesión.',
++      );
++    }
++
++    if (Object.prototype.hasOwnProperty.call(request.data ?? {}, 'pertenenciaId')) {
++      throw new HttpsError('invalid-argument', 'La pertenencia se genera desde el servidor.');
++    }
++
++    const codigo =
++      String(
++        request.data?.codigo ?? '',
++      )
++        .trim()
++        .toUpperCase();
++
++    const nombre =
++      String(
++        request.data?.nombre ?? '',
++      ).trim();
++
++    const email =
++      String(
++        request.data?.email ?? '',
++      ).trim();
++
++    const fotoUrl =
++      String(
++        request.data?.fotoUrl ?? '',
++      ).trim();
++
++    const descripcion =
++      String(
++        request.data?.descripcion ?? '',
++      ).trim();
++
++    if (!codigo) {
++      throw new HttpsError(
++        'invalid-argument',
++        'Debes ingresar un código de congregación.',
++      );
++    }
++
++    const usuarioRef =
++      db
++        .collection('usuarios_globales')
++        .doc(uid);
++
++    const iglesiasConsulta = db
++        .collection('iglesias')
++        .where(
++          'codigoAcceso',
++          '==',
++          codigo,
++        )
++        .limit(1);
++    const { generarPertenenciaId } = require('./pertenencia');
++    const { prepararIdempotenciaIngreso } = require('./idempotencia_ingreso');
++    const idempotencia = prepararIdempotenciaIngreso({
++      db, uid, datos: request.data, tipo: 'vincular', HttpsError,
++      parametros: { codigo, email, nombre, fotoUrl, descripcion },
++    });
++    // El resultado es el del intento confirmado, nunca el de uno descartado.
++    const ingreso = await db.runTransaction(async (transaction) => {
++      const usuarioSnapshot = await transaction.get(usuarioRef);
++      const resultado = await idempotencia?.leer(transaction, usuarioSnapshot);
++      if (resultado) return { resultado };
++      if (usuarioSnapshot.exists && usuarioSnapshot.data()?.iglesiaId) {
++        throw new HttpsError(
++          'failed-precondition', 'Tu cuenta ya pertenece a una congregación.',
++        );
++      }
++      const iglesiasSnapshot = await transaction.get(iglesiasConsulta);
++      if (iglesiasSnapshot.empty) {
++        throw new HttpsError('not-found', 'El código ingresado no existe.');
++      }
++      const iglesia = iglesiasSnapshot.docs[0];
++      const pertenenciaId = generarPertenenciaId();
++      transaction.set(usuarioRef, {
++        email,
++        nombre: nombre || 'Servidor',
++        iglesiaId: iglesia.id,
++        rolGlobal: 'servidor',
++        fotoUrl: fotoUrl || null,
++        descripcion: descripcion || null,
++        pertenenciaId,
++      }, { merge: true });
++      idempotencia?.registrar(transaction, { iglesiaId: iglesia.id, pertenenciaId }, FieldValue);
++      return { iglesiaDoc: iglesia };
++    });
++    if (ingreso.resultado) return ingreso.resultado;
++    const iglesiaDoc = ingreso.iglesiaDoc;
++
++    // Notify only after the link has been persisted. A push failure must not
++    // turn a successful link into an error that invites a client retry.
++    const adminUid = String(iglesiaDoc.data()?.adminUid ?? '').trim();
++    if (adminUid && adminUid !== uid) {
++      try {
++        await enviarNotificacionUsuarios({
++          iglesiaId: iglesiaDoc.id,
++          uids: [adminUid],
++          titulo: 'Nuevo miembro en FeSync',
++          cuerpo: nombre
++            ? `${nombre} se ha registrado en tu iglesia.`
++            : 'Un nuevo miembro se ha registrado en tu iglesia.',
++          data: {
++            type: 'nuevo_miembro',
++            tipo: 'nuevo_miembro',
++            usuarioUid: uid,
++          },
++        });
++      } catch (error) {
++        console.error('Vinculación exitosa; no se pudo enviar el aviso de nuevo miembro.', error?.code ?? error?.message);
++      }
++    }
++
++    return {
++      ok: true,
++      iglesiaId:
++        iglesiaDoc.id,
++    };
++  },
++);
++
++/*
++ * Crea una nueva congregación y deja al
++ * usuario autenticado como administrador.
++ */
++exports.registrarNuevaIglesiaSegura = onCall(
++  async (request) => {
++    const uid = request.auth?.uid;
++
++    if (!uid) {
++      throw new HttpsError(
++        'unauthenticated',
++        'Debes iniciar sesión.',
++      );
++    }
++
++    if (Object.prototype.hasOwnProperty.call(request.data ?? {}, 'pertenenciaId')) {
++      throw new HttpsError('invalid-argument', 'La pertenencia se genera desde el servidor.');
++    }
++
++    const nombreAdmin =
++      String(
++        request.data?.nombreAdmin ?? '',
++      ).trim();
++
++    const email =
++      String(
++        request.data?.email ?? '',
++      ).trim();
++
++    const nombreIglesia =
++      String(
++        request.data?.nombreIglesia ?? '',
++      ).trim();
++
++    const codigo =
++      String(
++        request.data?.codigo ?? '',
++      )
++        .trim()
++        .toUpperCase();
++
++    const descripcionIglesia =
++      String(
++        request.data?.descripcionIglesia ?? '',
++      ).trim();
++
++    const fotoUrl =
++      String(
++        request.data?.fotoUrl ?? '',
++      ).trim();
++
++    const descripcionAdmin =
++      String(
++        request.data?.descripcionAdmin ?? '',
++      ).trim();
++
++    if (
++      !nombreIglesia ||
++      !codigo
++    ) {
++      throw new HttpsError(
++        'invalid-argument',
++        'Debes completar nombre y código de la congregación.',
++      );
++    }
++
++    const usuarioRef =
++      db
++        .collection('usuarios_globales')
++        .doc(uid);
++
++    const codigoConsulta = db
++        .collection('iglesias')
++        .where(
++          'codigoAcceso',
++          '==',
++          codigo,
++        )
++        .limit(1);
++
++    const iglesiaRef =
++      db
++        .collection('iglesias')
++        .doc();
++
++    const { generarPertenenciaId } = require('./pertenencia');
++    const { prepararIdempotenciaIngreso } = require('./idempotencia_ingreso');
++    const idempotencia = prepararIdempotenciaIngreso({
++      db, uid, datos: request.data, tipo: 'crear', HttpsError,
++      parametros: { nombreAdmin, email, nombreIglesia, codigo, descripcionIglesia, fotoUrl, descripcionAdmin },
++    });
++    const resultado = await db.runTransaction(async (transaction) => {
++      const usuarioSnapshot = await transaction.get(usuarioRef);
++      const anterior = await idempotencia?.leer(transaction, usuarioSnapshot);
++      if (anterior) return anterior;
++      if (usuarioSnapshot.exists && usuarioSnapshot.data()?.iglesiaId) {
++        throw new HttpsError(
++          'failed-precondition', 'Tu cuenta ya pertenece a una congregación.',
++        );
++      }
++      const codigoExistente = await transaction.get(codigoConsulta);
++      if (!codigoExistente.empty) {
++        throw new HttpsError('already-exists', 'Ese código ya está en uso.');
++      }
++      const pertenenciaId = generarPertenenciaId();
++
++      transaction.create(
++        iglesiaRef,
++        {
++          nombre:
++            nombreIglesia,
++          descripcion:
++            descripcionIglesia,
++          codigoAcceso:
++            codigo,
++          adminUid:
++            uid,
++          logoUrl:
++            '',
++          modulosActivos: {
++            servidores:
++              true,
++            adoraLive:
++              true,
++            agenda:
++              true,
++            escuela:
++              false,
++            comunidades:
++              false,
++            capacitaciones:
++              true,
++          },
++          fechaCreacion:
++            FieldValue.serverTimestamp(),
++        },
++      );
++
++      transaction.set(
++        usuarioRef,
++        {
++          email,
++          nombre:
++            nombreAdmin ||
++            'Pastor / Administrador',
++          iglesiaId:
++            iglesiaRef.id,
++          rolGlobal:
++            'admin_iglesia',
++          pertenenciaId,
++          fotoUrl:
++            fotoUrl || null,
++          descripcion:
++            descripcionAdmin || null,
++        },
++        {
++          merge: true,
++        },
++      );
++      idempotencia?.registrar(transaction, { iglesiaId: iglesiaRef.id, pertenenciaId }, FieldValue);
++      return { ok: true, iglesiaId: iglesiaRef.id };
++    });
++
++    return resultado;
++  },
++);
++/*
++ * ============================================================
++ * ACCIONES SEGURAS DE MIEMBROS
++ * Servidores + Adora Live
++ * ============================================================
++ */
++
++/*
++ * Un miembro confirma o rechaza únicamente
++ * la asignación que le corresponde.
++ *
++ * Admin/líder también puede utilizar esta función
++ * sobre una asignación determinada.
++ */
++exports.actualizarEstadoTurnoSeguro = onCall(
++  async (request) => {
++    const uid = request.auth?.uid;
++
++    if (!uid) {
++      throw new HttpsError(
++        'unauthenticated',
++        'Debes iniciar sesión.',
++      );
++    }
++
++    const iglesiaId = String(
++      request.data?.iglesiaId ?? '',
++    ).trim();
++
++    const turnoId = String(
++      request.data?.turnoId ?? '',
++    ).trim();
++
++    const puesto = String(
++      request.data?.puesto ?? '',
++    ).trim();
++
++    const usuarioUidObjetivo = String(
++      request.data?.usuarioUid ?? '',
++    ).trim();
++
++    const nuevoEstado = String(
++      request.data?.estado ?? '',
++    ).trim();
++
++    if (
++      !iglesiaId ||
++      !turnoId ||
++      !puesto ||
++      !usuarioUidObjetivo
++    ) {
++      throw new HttpsError(
++        'invalid-argument',
++        'Faltan datos de la asignación.',
++      );
++    }
++
++    if (
++      nuevoEstado !== 'confirmado' &&
++      nuevoEstado !== 'rechazado'
++    ) {
++      throw new HttpsError(
++        'invalid-argument',
++        'Estado no permitido.',
++      );
++    }
++
++    const usuarioRef = db
++      .collection('usuarios_globales')
++      .doc(uid);
++
++    const turnoRef = db
++      .collection('iglesias')
++      .doc(iglesiaId)
++      .collection('turnos_servicio')
++      .doc(turnoId);
++
++    await db.runTransaction(
++      async (transaction) => {
++        const usuarioSnapshot =
++          await transaction.get(usuarioRef);
++
++        if (!usuarioSnapshot.exists) {
++          throw new HttpsError(
++            'permission-denied',
++            'El perfil del usuario no existe.',
++          );
++        }
++
++        const usuarioData =
++          usuarioSnapshot.data() ?? {};
++
++        if (
++          usuarioData.iglesiaId !==
++          iglesiaId
++        ) {
++          throw new HttpsError(
++            'permission-denied',
++            'No perteneces a esta congregación.',
++          );
++        }
++
++        const rol =
++          String(
++            usuarioData.rolGlobal ?? '',
++          );
++
++        const puedeGestionar =
++          rol === 'admin_iglesia' ||
++          rol === 'lider_area';
++
++        if (
++          !puedeGestionar &&
++          usuarioUidObjetivo !== uid
++        ) {
++          throw new HttpsError(
++            'permission-denied',
++            'Solo puedes modificar tu propia asignación.',
++          );
++        }
++
++        const turnoSnapshot =
++          await transaction.get(turnoRef);
++
++        if (!turnoSnapshot.exists) {
++          throw new HttpsError(
++            'not-found',
++            'El turno ya no existe.',
++          );
++        }
++
++        const turnoData =
++          turnoSnapshot.data() ?? {};
++
++        const asignacionesRaw =
++          Array.isArray(
++            turnoData.asignaciones,
++          )
++            ? turnoData.asignaciones
++            : [];
++
++        let encontrada = false;
++
++        const nuevasAsignaciones =
++          asignacionesRaw.map(
++            (asignacion) => {
++              if (
++                !asignacion ||
++                typeof asignacion !==
++                  'object'
++              ) {
++                return asignacion;
++              }
++
++              const puestoActual =
++                String(
++                  asignacion.puesto ?? '',
++                );
++
++              const uidActual =
++                String(
++                  asignacion.usuarioUid ??
++                    '',
++                );
++
++              if (
++                puestoActual === puesto &&
++                uidActual ===
++                  usuarioUidObjetivo
++              ) {
++                encontrada = true;
++
++                /*
++                 * La interfaz actual solamente
++                 * ofrece confirmar/rechazar
++                 * cuando el estado es pendiente.
++                 */
++                if (
++                  asignacion.estado !==
++                  'pendiente'
++                ) {
++                  throw new HttpsError(
++                    'failed-precondition',
++                    'Esta asignación ya fue respondida.',
++                  );
++                }
++
++                return {
++                  ...asignacion,
++                  estado: nuevoEstado,
++                };
++              }
++
++              return asignacion;
++            },
++          );
++
++        if (!encontrada) {
++          throw new HttpsError(
++            'not-found',
++            'No se encontró la asignación.',
++          );
++        }
++
++        transaction.update(
++          turnoRef,
++          {
++            asignaciones:
++              nuevasAsignaciones,
++          },
++        );
++      },
++    );
++
++    return {
++      ok: true,
++      estado: nuevoEstado,
++    };
++  },
++);
++
++/*
++ * El usuario autenticado modifica únicamente
++ * SU PROPIA asistencia en un evento de Adora.
++ */
++exports.actualizarAsistenciaAdoraSegura = onCall(
++  async (request) => {
++    const uid = request.auth?.uid;
++
++    if (!uid) {
++      throw new HttpsError(
++        'unauthenticated',
++        'Debes iniciar sesión.',
++      );
++    }
++
++    const iglesiaId = String(
++      request.data?.iglesiaId ?? '',
++    ).trim();
++
++    const eventoId = String(
++      request.data?.eventoId ?? '',
++    ).trim();
++
++    const asistir =
++      request.data?.asistir;
++
++    if (
++      !iglesiaId ||
++      !eventoId ||
++      typeof asistir !== 'boolean'
++    ) {
++      throw new HttpsError(
++        'invalid-argument',
++        'Datos de asistencia no válidos.',
++      );
++    }
++
++    const usuarioRef = db
++      .collection('usuarios_globales')
++      .doc(uid);
++
++    const eventoRef = db
++      .collection('iglesias')
++      .doc(iglesiaId)
++      .collection('adora_eventos')
++      .doc(eventoId);
++
++    await db.runTransaction(
++      async (transaction) => {
++        const usuarioSnapshot =
++          await transaction.get(
++            usuarioRef,
++          );
++
++        if (!usuarioSnapshot.exists) {
++          throw new HttpsError(
++            'permission-denied',
++            'El perfil del usuario no existe.',
++          );
++        }
++
++        const usuarioData =
++          usuarioSnapshot.data() ?? {};
++
++        if (
++          usuarioData.iglesiaId !==
++          iglesiaId
++        ) {
++          throw new HttpsError(
++            'permission-denied',
++            'No perteneces a esta congregación.',
++          );
++        }
++
++        const eventoSnapshot =
++          await transaction.get(
++            eventoRef,
++          );
++
++        if (!eventoSnapshot.exists) {
++          throw new HttpsError(
++            'not-found',
++            'El evento ya no existe.',
++          );
++        }
++
++        const eventoData =
++          eventoSnapshot.data() ?? {};
++
++        const nuevaLista =
++          Array.isArray(
++            eventoData.asistentesUids,
++          )
++            ? eventoData.asistentesUids.map(
++                (valor) =>
++                  String(valor),
++              )
++            : [];
++
++        const nombreUsuario =
++          String(
++            usuarioData.nombre ?? '',
++          );
++
++        /*
++         * También quitamos el nombre porque
++         * versiones antiguas de FeSync podían
++         * guardar el nombre en vez del UID.
++         */
++        const limpia =
++          nuevaLista.filter(
++            (valor) =>
++              valor !== uid &&
++              (
++                nombreUsuario.length ===
++                  0 ||
++                valor !==
++                  nombreUsuario
++              ),
++          );
++
++        if (asistir) {
++          limpia.push(uid);
++        }
++
++        transaction.update(
++          eventoRef,
++          {
++            asistentesUids:
++              limpia,
++          },
++        );
++      },
++    );
++
++    return {
++      ok: true,
++      asistir,
++    };
++  },
++);
++       
+diff --git a/functions/test/soporte/runtime_historico.js b/functions/test/soporte/runtime_historico.js
+new file mode 100644
+index 0000000..2ec67a9
+--- /dev/null
++++ b/functions/test/soporte/runtime_historico.js
+@@ -0,0 +1,48 @@
++'use strict';
++// Fixture de prueba: nunca autoriza el árbol de publicación como runtime antiguo.
++const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
++const { createHash } = require('node:crypto');
++const sha = b => createHash('sha256').update(b).digest('hex');
++const actual = path.resolve(__dirname, '../..');
++let fixture;
++
++function cargarHistorico() {
++  if (fixture) return fixture;
++  const admin = path.join(actual, 'contabilidad_demo');
++  const base = JSON.parse(fs.readFileSync(path.join(admin, 'fuentes_v1.json')));
++  const descriptor = JSON.parse(fs.readFileSync(path.join(admin, 'inventarios/runtime_6.json')));
++  const fuentes = { ...base, ...descriptor.adicionales,
++    ...Object.fromEntries(Object.entries(descriptor.administrativos).map(([p,h])=>['contabilidad_demo/'+p,h])) };
++  const temporal = fs.mkdtempSync(path.join(os.tmpdir(), 'fesync-runtime-historico-'));
++  const raiz = path.join(temporal, 'functions');
++  function escribir(p, bytes) {
++    const destino = path.resolve(raiz,p);
++    if (!destino.startsWith(raiz + path.sep)) throw Error('RUTA_HISTORICA_INVALIDA');
++    fs.mkdirSync(path.dirname(destino), { recursive:true }); fs.writeFileSync(destino,bytes);
++  }
++  for (const [p,h] of Object.entries(fuentes)) {
++    if (!/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*\.js$/.test(p)) throw Error('RUTA_HISTORICA_INVALIDA');
++    const origen = p === 'index.js' ? path.join(__dirname, '../fixtures/index_admin6.js.txt') : path.join(actual,p);
++    if(fs.lstatSync(origen).isSymbolicLink()) throw Error('FUENTE_HISTORICA_INVALIDA');
++    const bytes = fs.readFileSync(origen);
++    if(sha(bytes) !== h) throw Error(`FUENTE_HISTORICA_DIVERGENTE: ${p}`);
++    escribir(p,bytes);
++  }
++  escribir('contabilidad_demo/fuentes_v1.json',fs.readFileSync(path.join(admin,'fuentes_v1.json')));
++  for(const e of fs.readdirSync(path.join(admin,'inventarios'),{withFileTypes:true})) {
++    if(e.isSymbolicLink()) throw Error('FUENTE_HISTORICA_INVALIDA');
++    if(e.isFile() && e.name.endsWith('.json')) escribir('contabilidad_demo/inventarios/'+e.name,
++      fs.readFileSync(path.join(admin,'inventarios',e.name)));
++  }
++  // Verificador y política originales, sin parches, sin sustituir fs y sin
++  // un inventario nuevo: deben validar el conjunto exacto e identidad originales.
++  const fuentesHistoricas = require(path.join(raiz,'contabilidad_demo/fuentes.js'));
++  const identidad = fuentesHistoricas.obtenerContextoFuentes('admin-6');
++  if(identidad.huellaSoftware !== '16d281e09313a4a6f80f37b4d686d70fa5135e1e43e120ed91923bf5393b92e1') {
++    throw Error('IDENTIDAD_HISTORICA_DIVERGENTE');
++  }
++  fixture = Object.freeze({ raiz, DIR:path.join(raiz,'contabilidad_demo'), identidad,
++    cargar:p=>require(path.join(raiz,p)) });
++  return fixture;
++}
++module.exports = { cargarHistorico };
+diff --git a/test/finanzas_release4/ejecutar.cjs b/test/finanzas_release4/ejecutar.cjs
+new file mode 100644
+index 0000000..23b0ec3
+--- /dev/null
++++ b/test/finanzas_release4/ejecutar.cjs
+@@ -0,0 +1,21 @@
++'use strict';
++const path = require('node:path'), fs = require('node:fs');
++const { spawnSync, execFileSync } = require('node:child_process');
++require('../../functions/finanzas_v1/entorno').entorno();
++const root = path.resolve(__dirname,'../..');
++const soloFlutter = process.argv.length === 3 && process.argv[2] === '--flutter';
++if(!soloFlutter && process.argv.length !== 2) throw Error('Argumentos no admitidos.');
++if(!soloFlutter) {
++  const node = spawnSync(process.execPath,['--test',path.join(root,'test/finanzas_release3/integracion.cjs')],
++    {cwd:root,env:{...process.env,FIN_RELEASE_ETAPA:'4'},stdio:'inherit',windowsHide:true});
++  if(node.status !== 0) process.exit(node.status || 1);
++}
++const flutter = execFileSync('where.exe',['flutter.bat'],{encoding:'utf8'}).trim().split(/\r?\n/)[0];
++const sdk = path.dirname(path.dirname(flutter));
++const dart = path.join(sdk,'bin/cache/dart-sdk/bin/dart.exe');
++const snapshot = path.join(sdk,'bin/cache/flutter_tools.snapshot');
++if(!fs.existsSync(dart)||!fs.existsSync(snapshot)) throw Error('Falta el SDK instalado. No se instalará.');
++const result = spawnSync(dart,[snapshot,'test','--no-pub','--reporter','expanded',
++  '--dart-define=FIN_RELEASE4_EMULATOR_TEST=true','test/finanzas_release4/emulador_flutter_test.dart'],
++{cwd:root,env:process.env,stdio:'inherit',windowsHide:true});
++process.exitCode = result.status === 0 ? 0 : 1;
+diff --git a/test/finanzas_release4/emulador_flutter_test.dart b/test/finanzas_release4/emulador_flutter_test.dart
+new file mode 100644
+index 0000000..0f3db7a
+--- /dev/null
++++ b/test/finanzas_release4/emulador_flutter_test.dart
+@@ -0,0 +1,180 @@
++import 'dart:convert';
++import 'dart:io';
++
++import 'package:flutter/material.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:fesync/modules/finanzas/finanzas_mvp_screen.dart';
++import 'package:fesync/modules/finanzas/finanzas_mvp_service.dart';
++
++import '../finanzas_mvp_service_test.dart' show MemoriaFinanzas;
++
++class _BindingLocal extends AutomatedTestWidgetsFlutterBinding {
++  @override
++  bool get overrideHttpClient => false;
++}
++
++Future<Map<String, dynamic>> _post(
++  String ruta,
++  Map<String, dynamic> datos, {
++  String? token,
++}) async {
++  final uri = Uri.parse(ruta);
++  if (uri.host != '127.0.0.1' || ![9098, 5018].contains(uri.port)) {
++    throw StateError('Solo Auth y Functions locales.');
++  }
++  final cliente = HttpClient();
++  try {
++    final req = await cliente.postUrl(uri);
++    req.headers.contentType = ContentType.json;
++    if (token != null) req.headers.set('Authorization', 'Bearer $token');
++    req.write(jsonEncode(datos));
++    final res = await req.close();
++    final data = jsonDecode(
++      await res.transform(utf8.decoder).join(),
++    ) as Map<String, dynamic>;
++    if (res.statusCode != 200 || data['error'] != null) {
++      throw StateError(jsonEncode(data));
++    }
++    return data;
++  } finally {
++    cliente.close();
++  }
++}
++
++void main() {
++  const activa = bool.fromEnvironment('FIN_RELEASE4_EMULATOR_TEST');
++  if (activa) _BindingLocal();
++  testWidgets(
++    'Flutter real → Auth demo → entrada normal: gasto, saldo y paginación',
++    (tester) async {
++      final evidencia = jsonDecode(
++        File('docs/fin_release_4_2026-10-24/emulador.json').readAsStringSync(),
++      ) as Map<String, dynamic>;
++      expect(evidencia['proyecto'], 'demo-fesync');
++      expect(evidencia['entrada'], 'functions/index.js');
++      final fixture = evidencia['flutter'] as Map<String, dynamic>;
++      expect(fixture['functionsPort'], 5018);
++      expect((fixture['email'] as String).endsWith('@release3.demo'), isTrue);
++      final login = await tester.runAsync(
++        () => _post(
++          'http://127.0.0.1:9098/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=demo',
++          {
++            'email': fixture['email'],
++            'password': 'SoloDemo123!',
++            'returnSecureToken': true,
++          },
++        ),
++      );
++      final llamadas = <String>[];
++      var paginasCargadas = 0;
++      final servicio = FinanzasMvpService(
++        almacen: MemoriaFinanzas(),
++        uidActual: () => login!['localId'] as String,
++        llamar: (nombre, datos) async {
++          final destino = switch (nombre) {
++            'finanzasMvpConsultar' => 'finanzasV1Consultar',
++            'finanzasMvpEjecutar' => 'finanzasV1Ejecutar',
++            _ => throw StateError('No inicializar fixtures desde el cliente.'),
++          };
++          llamadas.add(destino);
++          if (datos['cursor'] != null) paginasCargadas++;
++          return Map<String, dynamic>.from(
++            (await _post(
++                  'http://127.0.0.1:5018/demo-fesync/southamerica-west1/$destino',
++                  {'data': datos},
++                  token: login!['idToken'] as String,
++                ))['result']
++                as Map,
++          );
++        },
++      );
++      tester.view.physicalSize = const Size(1200, 1000);
++      tester.view.devicePixelRatio = 1;
++      addTearDown(tester.view.resetPhysicalSize);
++      addTearDown(tester.view.resetDevicePixelRatio);
++      Future<void> esperar() async {
++        for (var i = 0; i < 600; i++) {
++          await tester.pump(const Duration(milliseconds: 100));
++          await tester.runAsync(
++            () => Future<void>.delayed(const Duration(milliseconds: 25)),
++          );
++          if (find.byType(CircularProgressIndicator).evaluate().isEmpty &&
++              find.text('Cargando historial…').evaluate().isEmpty &&
++              !tester.binding.hasScheduledFrame) {
++            return;
++          }
++        }
++        fail('La pantalla no terminó de cargar.');
++      }
++
++      final antes = await tester.runAsync(servicio.consultar);
++      final corteAntes = antes!['historial']['corte'] as int;
++      expect(corteAntes, greaterThanOrEqualTo(199));
++      await tester.pumpWidget(
++        MaterialApp(home: FinanzasMvpScreen(servicio: servicio)),
++      );
++      await esperar();
++      expect(
++        find.text('Saldo total: CLP ${antes['saldoTotalMinor']}'),
++        findsOneWidget,
++      );
++      await tester.tap(find.widgetWithText(FilledButton, 'Nuevo gasto'));
++      await tester.pumpAndSettle();
++      for (final e in {'Cuenta': 'caja', 'Categoría': 'gasto'}.entries) {
++        await tester.tap(
++          find.widgetWithText(DropdownButtonFormField<String>, e.key),
++        );
++        await tester.pumpAndSettle();
++        await tester.tap(find.text(e.value).last);
++        await tester.pumpAndSettle();
++      }
++      await tester.enterText(
++        find.widgetWithText(TextFormField, 'Monto en CLP'),
++        '17',
++      );
++      await tester.enterText(
++        find.widgetWithText(TextFormField, 'Fecha contable AAAA-MM-DD'),
++        '2026-10-24',
++      );
++      await tester.tap(find.widgetWithText(FilledButton, 'Confirmar'));
++      await esperar();
++      final despues = await tester.runAsync(servicio.consultar);
++      expect(
++        despues!['saldoTotalMinor'],
++        (antes['saldoTotalMinor'] as int) - 17,
++      );
++      expect(despues['historial']['corte'], corteAntes + 1);
++      expect(await tester.runAsync(servicio.pendiente), isNull);
++      await tester.tap(find.text('Historial'));
++      await tester.pumpAndSettle();
++      final boton = find.widgetWithText(TextButton, 'Cargar más movimientos');
++      // ListView construye el botón cuando se aproxima al final de la página.
++      await tester.scrollUntilVisible(
++        boton,
++        800,
++        scrollable: find.byType(Scrollable).first,
++        maxScrolls: 40,
++      );
++      await tester.tap(boton);
++      await esperar();
++      expect(llamadas.where((n) => n == 'finanzasV1Ejecutar').length, 1);
++      expect(paginasCargadas, 1);
++      expect(find.byType(SelectableText), findsNothing);
++      File('docs/fin_release_4_2026-10-24/flutter-emulador.json')
++          .writeAsStringSync(
++            jsonEncode({
++              'proyecto': 'demo-fesync',
++              'entrada': 'functions/index.js',
++              'saldoAntes': antes['saldoTotalMinor'],
++              'saldoDespues': despues['saldoTotalMinor'],
++              'secuencia': corteAntes + 1,
++              'paginacionDesdePantalla': true,
++              'paginasAdicionales': paginasCargadas,
++              'llamadas': llamadas,
++            }),
++          );
++    },
++    skip: !activa,
++    timeout: const Timeout(Duration(minutes: 3)),
++  );
++}
+diff --git a/test/finanzas_release4/iniciar.cjs b/test/finanzas_release4/iniciar.cjs
+new file mode 100644
+index 0000000..e732e7c
+--- /dev/null
++++ b/test/finanzas_release4/iniciar.cjs
+@@ -0,0 +1,65 @@
++'use strict';
++const fs = require('node:fs'), path = require('node:path'), os = require('node:os'), net = require('node:net');
++const { spawn } = require('node:child_process');
++
++async function main() {
++  const soloFlutter = process.argv.length === 3 && process.argv[2] === '--flutter';
++  if ((!soloFlutter && process.argv.length !== 2) || process.env.GOOGLE_APPLICATION_CREDENTIALS ||
++      process.env.FIREBASE_TOKEN || process.env.GOOGLE_OAUTH_ACCESS_TOKEN ||
++      [process.env.GCLOUD_PROJECT, process.env.GOOGLE_CLOUD_PROJECT].some(p => p && p !== 'demo-fesync')) {
++    throw Error('Solo demo-fesync sin credenciales ni opciones alternativas.');
++  }
++  // Si ya vive la demo anterior, conservarla. No reiniciar Auth/Firestore ni
++  // registrar nuestra segunda instancia en su locator/hub.
++  const locator = path.join(os.tmpdir(), 'hub-demo-fesync.json');
++  let existentes = false;
++  if (fs.existsSync(locator)) {
++    const local = JSON.parse(fs.readFileSync(locator, 'utf8'));
++    if (local.origins?.includes('http://127.0.0.1:4408')) {
++      const r = await fetch('http://127.0.0.1:4408/emulators', {signal:AbortSignal.timeout(3000)});
++      const e = await r.json();
++      existentes = e.auth?.host === '127.0.0.1' && e.auth?.port === 9098 &&
++        e.firestore?.host === '127.0.0.1' && e.firestore?.port === 8088;
++      if(!existentes) throw Error('La infraestructura existente no coincide con demo-fesync.');
++    }
++  }
++  for (const port of (existentes ? [5018,4418,4518] : [8088,9098,5018,4418,4518])) await new Promise((resolve, reject) => {
++    const s = net.createServer(); s.once('error', () => reject(Error(`Puerto ${port} ocupado; no se vacía ni reinicia.`)));
++    s.listen(port, '127.0.0.1', () => s.close(resolve));
++  });
++  const cli = require.resolve('firebase-tools/lib/bin/firebase', { paths: [path.join(process.env.APPDATA, 'npm/node_modules')] });
++  const info = JSON.parse(fs.readFileSync(path.join(path.dirname(cli), '../emulator/downloadableEmulatorInfo.json'))).firestore;
++  if (!fs.existsSync(path.join(os.homedir(), '.cache/firebase/emulators', info.downloadPathRelativeToCacheDir))) {
++    throw Error('Falta el emulador instalado. No se descargará.');
++  }
++  const root = path.resolve(__dirname, '../..'), tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fesync-fin-release4-emu-'));
++  const config = JSON.parse(fs.readFileSync(path.join(root, 'firebase.finanzas-release.json')));
++  config.functions[0].source = path.relative(tmp, path.join(root, 'functions'));
++  fs.copyFileSync(path.join(root, 'firestore.rules'), path.join(tmp, 'firestore.rules'));
++  fs.writeFileSync(path.join(tmp, 'firebase.json'), JSON.stringify(config));
++  const env = {};
++  for (const k of ['PATH','SystemRoot','WINDIR','TEMP','TMP','USERPROFILE','HOME','APPDATA','LOCALAPPDATA','ComSpec',
++    'PATHEXT','JAVA_HOME','NUMBER_OF_PROCESSORS','PROCESSOR_ARCHITECTURE','PROGRAMFILES(X86)']) {
++    if (process.env[k]) env[k] = process.env[k];
++  }
++  if (!env.JAVA_HOME && fs.existsSync('C:/Program Files/Android/Android Studio/jbr/bin/java.exe')) {
++    env.JAVA_HOME = 'C:/Program Files/Android/Android Studio/jbr';
++  }
++  if (env.JAVA_HOME) env.PATH = path.join(env.JAVA_HOME, 'bin') + path.delimiter + env.PATH;
++  Object.assign(env, { GCLOUD_PROJECT: 'demo-fesync', GOOGLE_CLOUD_PROJECT: 'demo-fesync',
++    FIRESTORE_EMULATOR_HOST: '127.0.0.1:8088', FIREBASE_AUTH_EMULATOR_HOST: '127.0.0.1:9098',
++    FUNCTIONS_EMULATOR: 'true', CI: 'true', FIREBASE_CLI_DISABLE_MOTD: 'true', XDG_CONFIG_HOME: tmp,
++    METADATA_SERVER_DETECTION: 'none', TEMP: tmp, TMP: tmp });
++  const command = `"${process.execPath}" "${path.join(__dirname, 'ejecutar.cjs')}"${soloFlutter ? ' --flutter' : ''}`;
++  console.log(`FIN-RELEASE-4, entrada functions/index.js, solo demo-fesync. Infraestructura y logs: ${tmp}`);
++  fs.writeFileSync(path.join(root, 'docs/fin_release_4_2026-10-24/infraestructura.json'),
++    JSON.stringify({ project: 'demo-fesync', source: 'functions/index.js', tmp, ports: [8088,9098,5018],
++      authFirestoreReutilizados: existentes }, null, 2));
++  const child = spawn(process.execPath, [cli, 'emulators:exec', '--only', existentes ? 'functions' : 'auth,firestore,functions',
++    '--project', 'demo-fesync', '--config', path.join(tmp, 'firebase.json'), '--non-interactive', command],
++  { cwd: tmp, env, stdio: 'inherit', windowsHide: true });
++  await new Promise((resolve, reject) => {
++    child.once('error', reject); child.once('exit', code => { process.exitCode = code === 0 ? 0 : 1; resolve(); });
++  });
++}
++main().catch(e => { console.error(e.message); process.exitCode = 1; });
+diff --git a/test/finanzas_release4/reglas.cjs b/test/finanzas_release4/reglas.cjs
+new file mode 100644
+index 0000000..e30d4be
+--- /dev/null
++++ b/test/finanzas_release4/reglas.cjs
+@@ -0,0 +1,35 @@
++'use strict';
++const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),net=require('node:net');
++const {spawn}=require('node:child_process');
++async function main(){
++  if(process.argv.length!==2||process.env.GOOGLE_APPLICATION_CREDENTIALS||process.env.FIREBASE_TOKEN||
++    process.env.GOOGLE_OAUTH_ACCESS_TOKEN||[process.env.GCLOUD_PROJECT,process.env.GOOGLE_CLOUD_PROJECT].some(p=>p&&p!=='demo-fesync')) {
++    throw Error('Solo reglas locales demo-fesync sin credenciales.');
++  }
++  for(const port of [8098,4428,4528])await new Promise((resolve,reject)=>{
++    const s=net.createServer();s.once('error',()=>reject(Error(`Puerto ${port} ocupado; no reiniciar.`)));
++    s.listen(port,'127.0.0.1',()=>s.close(resolve));
++  });
++  const cli=require.resolve('firebase-tools/lib/bin/firebase',{paths:[path.join(process.env.APPDATA,'npm/node_modules')]});
++  const info=JSON.parse(fs.readFileSync(path.join(path.dirname(cli),'../emulator/downloadableEmulatorInfo.json'))).firestore;
++  if(!fs.existsSync(path.join(os.homedir(),'.cache/firebase/emulators',info.downloadPathRelativeToCacheDir)))throw Error('Falta emulador instalado.');
++  const root=path.resolve(__dirname,'../..'),tmp=fs.mkdtempSync(path.join(os.tmpdir(),'fesync-fin-release4-rules-'));
++  fs.copyFileSync(path.join(root,'firestore.rules'),path.join(tmp,'firestore.rules'));
++  fs.writeFileSync(path.join(tmp,'firebase.json'),JSON.stringify({firestore:{rules:'firestore.rules'},emulators:{
++    firestore:{host:'127.0.0.1',port:8098},hub:{host:'127.0.0.1',port:4428},logging:{host:'127.0.0.1',port:4528},
++    ui:{enabled:false},singleProjectMode:true}}));
++  const env={};
++  for(const k of ['PATH','SystemRoot','WINDIR','USERPROFILE','HOME','APPDATA','LOCALAPPDATA','ComSpec','PATHEXT','JAVA_HOME',
++    'NUMBER_OF_PROCESSORS','PROCESSOR_ARCHITECTURE','PROGRAMFILES(X86)'])if(process.env[k])env[k]=process.env[k];
++  if(!env.JAVA_HOME&&fs.existsSync('C:/Program Files/Android/Android Studio/jbr/bin/java.exe'))env.JAVA_HOME='C:/Program Files/Android/Android Studio/jbr';
++  if(env.JAVA_HOME)env.PATH=path.join(env.JAVA_HOME,'bin')+path.delimiter+env.PATH;
++  Object.assign(env,{GCLOUD_PROJECT:'demo-fesync',GOOGLE_CLOUD_PROJECT:'demo-fesync',FIRESTORE_EMULATOR_HOST:'127.0.0.1:8098',
++    FINANZAS_RULES_EMULATOR_PORT:'8098',TEMP:tmp,TMP:tmp,XDG_CONFIG_HOME:tmp,CI:'true',FIREBASE_CLI_DISABLE_MOTD:'true',METADATA_SERVER_DETECTION:'none'});
++  const command=`"${process.execPath}" --test "${path.join(root,'test/finanzas_rules/finanzas.test.js')}"`;
++  console.log('Reglas financieras aisladas en demo-fesync:8098. No se borra Firestore 8088. Logs: '+tmp);
++  fs.writeFileSync(path.join(root,'docs/fin_release_4_2026-10-24/reglas-infraestructura.json'),JSON.stringify({project:'demo-fesync',port:8098,tmp},null,2));
++  const child=spawn(process.execPath,[cli,'emulators:exec','--only','firestore','--project','demo-fesync','--config',path.join(tmp,'firebase.json'),'--non-interactive',command],
++    {cwd:tmp,env,stdio:'inherit',windowsHide:true});
++  await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',code=>{process.exitCode=code===0?0:1;resolve();});});
++}
++main().catch(e=>{console.error(e.message);process.exitCode=1;});

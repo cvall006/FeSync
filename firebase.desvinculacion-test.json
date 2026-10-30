@@ -1,0 +1,15 @@
+{
+  "functions": [{ "source": "functions/test/integracion_runtime", "codebase": "membresia-pruebas" }],
+  "firestore": { "rules": "firestore.rules" },
+  "storage": { "rules": "storage.rules" },
+  "emulators": {
+    "auth": { "host": "127.0.0.1", "port": 9098 },
+    "functions": { "host": "127.0.0.1", "port": 5008 },
+    "firestore": { "host": "127.0.0.1", "port": 8088 },
+    "storage": { "host": "127.0.0.1", "port": 9198 },
+    "hub": { "host": "127.0.0.1", "port": 4408 },
+    "logging": { "host": "127.0.0.1", "port": 4508 },
+    "ui": { "enabled": false },
+    "singleProjectMode": true
+  }
+}

@@ -1,0 +1,65 @@
+# FIN-RELEASE-9 — validación final de Finanzas V1
+
+**Decisión: BLOQUEADO para solicitar la publicación completa del cliente Android.** Hay un AVD configurado (`Medium_Phone_API_36.1`), pero ningún dispositivo conectado y la compilación debug demo estrictamente offline falla por dependencias ausentes en caché: `com.android.tools.build:gradle:8.5.2` y `org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.22`, requeridas por `android_file_picker`. No se descargaron dependencias ni se arrancó el AVD. Por tanto, no se validaron FlutterFire ni almacenamiento seguro nativos. Además, `android/app/build.gradle.kts` conserva `release.signingConfig = debug`: la distribución Android necesita una firma de publicación y su validación. No se modificaron estas configuraciones ni claves.
+
+El candidato Functions puede revisarse offline. El estado de Firebase desplegado y de las iglesias reales sigue **desconocido**; no se ha consultado. Su comprobación requerirá autorización y no se sustituye por las pruebas locales. No se inicia otra fase.
+
+## Evidencia ejecutada en FIN9
+
+| Comprobación | Resultado | Evidencia |
+| --- | --- | --- |
+| `npm.cmd test` desde `functions/` | 1.786 aprobadas, 0 fallos/omisiones | `fin_release_9_2026-10-26/node.log` |
+| Servidor por entrada normal en emuladores | 34 aprobadas, sin fallos/omisiones | `integracion-cierre.log`; se repiten los escenarios FIN8, sin sustituir el backend |
+| Circuito completo UI desde `main.dart` y Dashboard | 1 aprobada sobre HTTP real local; salida 0 | `integracion-cierre.log`, `flutter-navegacion.json` |
+| Reglas financieras, privacidad y pertenencia | 46 + 13 + 33 = 92 aprobadas, sin fallos/omisiones | `reglas-final.log`, con bloqueo TCP externo |
+| Flutter: regresión de formulario, pendientes, servicio, pantalla y paginación | 18 aprobadas | `flutter-regresion.log` |
+| Flutter completo posterior a la corrección | 457 aprobadas, 0 fallos; 7 integraciones condicionadas omitidas en esta pasada genérica | `flutter-final.log`; la integración FIN9 se ejecutó aparte |
+| Analyze de cliente, bootstrap, Dashboard y pruebas FIN9 | Sin incidencias, salida 0 | `analyze-cierre.log` |
+| Guardia TCP/HTTP2 | 1 aprobada, sin abrir sockets de la autoprueba | `guardia-red.log` |
+| Android | ADB sin dispositivos; un AVD disponible; compilación offline rechazada, salida 1 | `android-disponibilidad.log`, `android-build-offline.log` |
+| Ensamble y ZIP Functions | 32 archivos y 25 exports; cada entrada ZIP comprobada por SHA-256 | `paquete-manifest.json`, `zip-integridad.json` |
+
+La cifra previa de 456 Flutter y las pruebas de FIN5–FIN8 son antecedentes revisados; la pasada completa nueva obtuvo 457 con la regresión adicional. Ninguna es una ejecución nativa Android. Los informes anteriores se conservan. Los ensayos fijan `demo-fesync`, Auth 9098, Firestore 8088 y Functions normal 5018; reglas en 8098 aislado. Los ejecutores rechazan credenciales/proyectos alternativos; el preload Node bloquea sockets externos y el adaptador Flutter permite exclusivamente HTTP local, sin redirecciones. El reporte HTML generado por el intento Gradle se conserva como `android-gradle-problems.html` junto al log; no se deja como archivo nuevo dentro del código Android.
+
+La navegación final crea cuenta y apertura, categoría de diezmos/ingreso, gasto, transferencia y reversión mediante los formularios reales; carga otra página de historial y comprueba saldos/corte. Recupera una respuesta financiera perdida con el mismo ID, pausa con respuesta administrativa perdida y recupera ese paso. Un gasto sin commit permanece pendiente al avanzar octubre → noviembre por la pantalla de mantenimiento; al reabrir Finanzas no se ejecuta, se descarta explícitamente y el formulario nuevo usa otro ID y fecha `2026-11-01`. Corte `199 → 206`; saldo `10198 → 11330`. El gasto con respuesta perdida agrega exactamente un movimiento (`11348 → 11337`); el nuevo gasto explícito resta 7. Solo se registran destinos `127.0.0.1:9098`, `:8088`, `:5018`, sin conexiones externas observadas. Son adaptadores FlutterFire de prueba sobre HTTP local, no un Android nativo. Los escenarios del servidor comprueban además preparación vacía/existente, revocación incluso entre intención y commit, aislamiento, gate apagado, carreras de descarte y rechazo de inconsistencias/límites.
+
+**Única corrección de producto:** confirmar un formulario podía destruir los `TextEditingController` por un temporizador de 300 ms antes del desmontaje del diálogo. Se reprodujo con un cuadro lento en `integracion-reintento.log`. `finanzas_mvp_screen.dart` ahora espera `DialogRoute.completed`; se conserva la captura de temas, contrato, validación y envío. `formulario_test.dart` reproduce esa secuencia y exige ausencia de excepciones, un único envío y pendiente resuelto. No cambia el motor ni el transporte. Los otros intentos visuales iniciales tuvieron esperas insuficientes del ensayo frente a los snapshots de arranque y al desmontaje del diálogo; se sincronizó la prueba y se repitió hasta el cierre aprobado. Todos los logs se conservan y los fallidos no se presentan como aprobados.
+
+## Paquete, reglas y configuración
+
+- Candidato actual: [configuración Functions](fin_release_9_2026-10-26/paquete/firebase.json), [ZIP](fin_release_9_2026-10-26/functions-v1-candidato.zip) y [manifiesto](fin_release_9_2026-10-26/paquete-manifest.json). Incluye los 10 módulos V1, cierre de imports, dependencias declaradas y lock vigentes, Node 24 y los 25 exports del index. Digest de fuentes: `ff1fc266c09566a5807c97df3475f4b5352530310a3767ba316dbc709778e50e`. No incluye tests, fixtures, herramientas demo, claves, `node_modules`, reglas ni alias/codebase de emulador. No utilizar el directorio amplio `functions/` ni los ZIP históricos FIN5/FIN7 como sustituto.
+- Los cuatro callables V1 —`Consultar`, `Ejecutar`, `ResolverSolicitud`, `Mantener`, con prefijo `finanzasV1` y región `southamerica-west1`— exigen habilitación global explícita del servidor, gate privado exacto por iglesia y autorización vigente. Sin selección publicable/flag true rechazan antes de DB. La rama demo estricta solo permite fixtures autorizadas en emuladores. El mantenimiento exige titular real. Se conservan los dos callables previos de configuración de módulo/encargado: no son interruptores del gate privado ni vías de contabilización; mantienen sus permisos anteriores.
+- Cliente publicable y plantilla del servidor permanecen en `false`, sin claves, fixtures ni destinos demo. Debug exige demo antes de inicializar Firebase; Functions se conecta explícitamente a 5018. La rama publicable exige release, proyecto explícito coincidente y ausencia de variables de emulador. El manifiesto fija hashes de cliente, configuración y reglas locales.
+- Reglas locales sin cambios: movimientos, cierres, auditoría, recibos, intenciones, resoluciones y mantenimiento no se leen/escriben directamente desde clientes, por documento, consulta o collection group. Catálogos/configuración/señal conservan las lecturas de producto autorizadas, incluso sin gate privado; el gate no se presenta como bloqueo de toda metadata. Storage financiero no tiene ruta abierta ni consumidor V1. No se conoce la revisión de reglas desplegada; el diff completo deberá revisarse antes de autorizar su publicación.
+
+## Compatibilidad y límites
+
+| Cliente | Situación |
+| --- | --- |
+| FIN8/FIN9 con transporte normal | Nombres, región, contratos, idempotencia y prefijos persistidos compatibles. Distribuir el código corregido FIN9. |
+| FIN7 con los dos callables normales | Operación básica compatible; no resuelve pendientes vencidos mediante el contrato nuevo. Actualización obligatoria antes de habilitar el piloto. |
+| Nombres demo `finanzasMvp*` o consulta sin `historialPaginado:true` | No son compatibles con la entrada normal; requieren actualizar. No se crean alias ni se entrega historial truncado. |
+| Lectura directa antigua del libro/auditoría/cierres | Denegación intencional. Actualizar al DTO filtrado; no reabrir reglas para conservarla. |
+| Dashboard, ingreso, roles, membresía y módulos anteriores | Permisos y contratos conservados; regresiones de reglas y callables existentes ejercitadas. No se afirma compatibilidad de consumidores externos no presentes en el repositorio. |
+
+Límites operativos V1: 50 cuentas/categorías/saldos/aperturas, 24 resúmenes, 20.000 movimientos/reversas y 8 MiB contabilizados de movimientos durante mantenimiento; también rigen límites/tiempo de Firestore. Son pasos transaccionales acotados con recibo idempotente, no reconstrucciones parciales. Fuera de límites o ante divergencias: mantener pausa, conservar originales/recibos/pendientes y solicitar intervención autorizada; no ampliar límites, editar saldos ni certificar historia por conciliación. Inicialización verificable obligatoria, siempre `certificacionHistorica:false`. Períodos heredados cerrados, acceso revocado o recibos incoherentes siguen los casos humanos de FIN8: no borrar ni reenviar con otro ID por suposición.
+
+## Publicación gradual y reversión — solo documentadas
+
+1. Resolver y validar Android y su firma. Fijar este candidato, hashes del cliente y revisión exacta de reglas. Obtener autorización de preflight de solo lectura para proyecto/iglesia explícitos: reglas desplegadas, entorno, IAM/runtime/cuotas y libro/acceso actuales. Detenerse ante diferencias sin revisión.
+2. Con autorización de despliegue, publicar **solo** los cuatro callables V1 y, por autorización independiente, la revisión Firestore aprobada. Conservar global/gates privados apagados. Los demás 21 exports están incluidos para integridad del index, no para autorizar su redespliegue. No desplegar Storage ni otros módulos por arrastre.
+3. Preparar una sola iglesia piloto y ventana observada. Antes de habilitar el gate en un libro existente operativo, un operador de servidor expresamente autorizado debe dejar el protocolo bloqueado y preservar su estado; solo se cambia el control de pausa, nunca movimientos/saldos/recibos. Si no existe ese procedimiento autorizado, no abrir el gate. Con entorno/gate autorizados, el titular puede verificar e inicializar/reanudar por el callable. En un libro nuevo, preparar vacío y luego inicializar verificablemente. **Gate apagado impide también mantenimiento y recuperación:** no seguir literalmente el orden antiguo de FIN5 que suponía pausar por callable con el gate cerrado.
+4. Verificar identidad/pertenencia/titularidad/encargo, preparación y corte, privacidad, lectura filtrada y rechazos. Distribuir el cliente autorizado y habilitar únicamente el piloto aprobado. No crear asientos ficticios en un libro real; smoke de lectura/rechazos u operaciones reales expresamente aprobadas. Cambio mensual: pausar → verificar → mes consecutivo → verificar → reanudar. Resolver pendientes con recibo original o descarte seguro antes de crear otra operación.
+5. Ampliar iglesia por iglesia tras una ventana sin divergencias. Ante incidente, detener ampliación y pausar si es posible; el operador autorizado puede apagar gate/global. Los commits anteriores al apagado se conservan. No borrar pendientes ni restaurar datos sobre commits. Revertir únicamente a código compatible con los marcadores terminales y recibos V1; no volver al escritor anterior a FIN8. Reanudar requiere causa resuelta, verificación y autorización.
+
+## Git y autorización pendiente
+
+Respaldo inicial verificado: 783 rutas, con diffs, HEAD, rama e índice en [respaldo.json](fin_release_9_2026-10-26/respaldo.json). Rama `integration/adora-live`; HEAD `01223cd990312677ebbef2892ae7e99b1109e272`. Índice sin cambios. Se conservan 781 rutas en su estado anterior, incluida la eliminación Kotlin previa; no falta ninguna. Las dos fuentes modificadas son únicamente `lib/modules/finanzas/finanzas_mvp_screen.dart` y el selector de etapa de `test/finanzas_release3/integracion.cjs`; pruebas/ejecutores FIN9 y este informe son nuevos. [Integridad y lista exacta](fin_release_9_2026-10-26/integridad.json), [diff](fin_release_9_2026-10-26/intervencion.patch) y [estado Git](fin_release_9_2026-10-26/git-status.txt). Reglas, backend, dependencias, configuración publicable, V2, inventarios, Work, migración de membresía e informes/respaldos previos permanecen intactos. El espacio final preexistente de `functions/index.js:2047` sigue siendo el único hallazgo de `git diff --check`.
+
+Acciones futuras que requieren autorización explícita:
+
+1. Consultar Firebase real para el preflight delimitado, identificando proyecto e iglesia(s).
+2. Desplegar las revisiones exactas de Functions/reglas y distribuir el cliente firmado; cada alcance debe estar identificado y aprobado.
+3. Preparar controles y activar global/gate privado de una iglesia piloto real, y autorizar por separado su ampliación o reactivación tras incidencias.
+
+No se ejecutó ninguna de ellas. Sin producción, despliegues, activaciones reales, nuevas acreditaciones, commits ni cambio de rama. La obtención de dependencias y validación/firma Android pendientes no se presentan como resultados obtenidos. FIN9 cierra aquí; no se inicia FIN10 ni admin-6.

@@ -1,0 +1,161 @@
+diff --git a/docs/membresia_verificacion_2026-10-28/remotas-0.rules b/docs/membresia_piloto_2026-10-28/firestore.piloto.rules
+index 8403313..5df5bb5 100644
+--- a/docs/membresia_verificacion_2026-10-28/remotas-0.rules
++++ b/docs/membresia_piloto_2026-10-28/firestore.piloto.rules
+@@ -75,6 +75,21 @@ service cloud.firestore {
+ 
+     match /usuarios_globales/{userId} {
+ 
++      // Pertenencia y roles solo se modifican desde backend mediante Admin SDK.
++      // affectedKeys incluye adiciones, eliminaciones y cambios de tipo/valor.
++      // No exige pertenenciaId en perfiles legados ni lo genera desde cliente.
++      function conservaPertenencia() {
++        return !request.resource.data.diff(resource.data).affectedKeys()
++          .hasAny(['iglesiaId', 'rolGlobal', 'pertenenciaId']);
++      }
++
++      // Compatibilidad solo para perfiles sin generación financiera verificable.
++      // No permite quitar una generación ni añadirla desde el cliente.
++      function legadoSinPertenencia() {
++        return !('pertenenciaId' in resource.data) &&
++          !('pertenenciaId' in request.resource.data);
++      }
++
+       /*
+        * Cada usuario puede leer su propio perfil.
+        *
+@@ -120,6 +135,7 @@ service cloud.firestore {
+        * iguales.
+        */
+       allow update: if autenticado() &&
++        conservaPertenencia() &&
+         uid() == userId &&
+         ('iglesiaId' in resource.data) &&
+         ('rolGlobal' in resource.data) &&
+@@ -131,97 +147,44 @@ service cloud.firestore {
+           resource.data.rolGlobal;
+ 
+       /*
+-       * SALIR VOLUNTARIAMENTE
+-       *
+-       * Un miembro puede eliminar de sí mismo
+-       * iglesiaId y rolGlobal.
++       * ADMINISTRADOR MODIFICANDO OTRO MIEMBRO.
+        *
+-       * El administrador no puede hacerlo.
++       * Solo descripción auxiliar. Salida, expulsión, cambio de iglesia
++       * y cambios de rol requieren backend, sin excepciones de SDK cliente.
+        */
+       allow update: if autenticado() &&
++        conservaPertenencia() &&
++        uid() != userId &&
++        ('iglesiaId' in resource.data) &&
++        esAdmin(resource.data.iglesiaId) &&
++        request.resource.data.diff(resource.data).affectedKeys()
++          .hasOnly(['descripcion']);
++
++      allow delete: if false;
++
++      allow update: if autenticado() && legadoSinPertenencia() &&
+         uid() == userId &&
+-        ('rolGlobal' in resource.data) &&
+-        resource.data.rolGlobal !=
+-          'admin_iglesia' &&
+-        !(
+-          'iglesiaId'
+-          in request.resource.data
+-        ) &&
+-        !(
+-          'rolGlobal'
+-          in request.resource.data
+-        );
++        resource.data.get('rolGlobal', '') in ['servidor', 'lider_area'] &&
++        request.resource.data.diff(resource.data).affectedKeys()
++          .hasOnly(['iglesiaId', 'rolGlobal', 'descripcion']) &&
++        !('iglesiaId' in request.resource.data) &&
++        !('rolGlobal' in request.resource.data);
+ 
+-      /*
+-       * ADMINISTRADOR MODIFICANDO OTRO MIEMBRO.
+-       */
+-      allow update: if autenticado() &&
++      allow update: if autenticado() && legadoSinPertenencia() &&
+         uid() != userId &&
+-        ('iglesiaId' in resource.data) &&
+-        esAdmin(
+-          resource.data.iglesiaId
+-        ) &&
+-        (
+-          !request.resource.data
+-            .diff(resource.data)
+-            .affectedKeys()
+-            .hasAny(['rolGlobal', 'iglesiaId']) ||
+-          get(/databases/$(database)/documents/iglesias/$(resource.data.iglesiaId))
+-            .data.get('adminUid', '') != userId
+-        ) &&
++        resource.data.get('rolGlobal', '') in ['servidor', 'lider_area'] &&
++        esAdmin(resource.data.iglesiaId) &&
++        get(/databases/$(database)/documents/iglesias/$(resource.data.iglesiaId))
++          .data.get('adminUid', '') != userId &&
++        request.resource.data.diff(resource.data).affectedKeys()
++          .hasOnly(['iglesiaId', 'rolGlobal', 'descripcion']) &&
+         (
+-          /*
+-           * Cambiar descripción o rol.
+-           */
+-          (
+-            ('iglesiaId' in request.resource.data) &&
+-            request.resource.data.iglesiaId ==
+-              resource.data.iglesiaId &&
+-            request.resource.data
+-              .diff(resource.data)
+-              .affectedKeys()
+-              .hasOnly([
+-                'descripcion',
+-                'rolGlobal'
+-              ]) &&
+-            (
+-              !request.resource.data
+-                .diff(resource.data)
+-                .affectedKeys()
+-                .hasAny(['rolGlobal']) ||
+-              request.resource.data.rolGlobal
+-                in [
+-                  'servidor',
+-                  'lider_area'
+-                ]
+-            )
+-          )
+-          ||
+-          /*
+-           * Quitar de la congregación.
+-           */
+-          (
+-            request.resource.data
+-              .diff(resource.data)
+-              .affectedKeys()
+-              .hasOnly([
+-                'iglesiaId',
+-                'rolGlobal',
+-                'descripcion'
+-              ]) &&
+-            !(
+-              'iglesiaId'
+-              in request.resource.data
+-            ) &&
+-            !(
+-              'rolGlobal'
+-              in request.resource.data
+-            )
+-          )
++          (request.resource.data.get('iglesiaId', '') == resource.data.iglesiaId &&
++            request.resource.data.get('rolGlobal', '') in ['servidor', 'lider_area']) ||
++          (!('iglesiaId' in request.resource.data) &&
++            !('rolGlobal' in request.resource.data))
+         );
+ 
+-      allow delete: if false;
+-
+       /*
+        * ======================================================
+        * DISPOSITIVOS / TOKENS FCM

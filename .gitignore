@@ -48,3 +48,34 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Credenciales y archivos locales: conservarlos fuera del respaldo de código.
+.env
+.env.*
+!.env.example
+!*.env.example
+*.pem
+*.p12
+*.pfx
+serviceAccount*.json
+**/*service-account*.json
+**/.kotlin/
+**/.firebase/
+
+# Evidencias y paquetes de ejecución. Pueden contener datos de producción;
+# permanecen en el equipo. Código, pruebas e informes Markdown sí se versionan.
+/docs/**/hosting/
+/docs/**/paquete/
+/docs/**/fuentes/
+/docs/**/*.json
+/docs/**/*.jsonl
+/docs/**/*.png
+/docs/**/*.zip
+/docs/**/*.jar
+/docs/**/*.pcap
+/docs/**/*.pid
+/docs/**/*.cache
+/docs/**/*.xml
+/docs/**/*.html
+/docs/**/*.txt
+/docs/**/finalizar*

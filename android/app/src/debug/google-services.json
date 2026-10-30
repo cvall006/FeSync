@@ -1,0 +1,15 @@
+{
+  "project_info": {
+    "project_number": "1234567890",
+    "project_id": "demo-fesync",
+    "storage_bucket": "demo-fesync.firebasestorage.app"
+  },
+  "client": [{
+    "client_info": {
+      "mobilesdk_app_id": "1:1234567890:android:0000000000000000000000",
+      "android_client_info": { "package_name": "com.example.fesync.finanzasdemo" }
+    },
+    "api_key": [{ "current_key": "AIzaSyDemoFeSync00000000000000000000000" }]
+  }],
+  "configuration_version": "1"
+}

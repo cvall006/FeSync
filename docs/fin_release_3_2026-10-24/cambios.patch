@@ -1,0 +1,580 @@
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release3-20261025002720\\files\\functions\\index.js" b/functions/index.js
+index 6434c9f..e593902 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release3-20261025002720\\files\\functions\\index.js"
++++ b/functions/index.js
+@@ -1271,6 +1271,22 @@ exports.actualizarEstadoModuloFinanzas = onCall(
+   },
+ );
+ 
++// Circuito nuevo, deshabilitado por defecto y limitado a emuladores durante
++// FIN-RELEASE-3. No modifica contratos ni habilitación de los callables anteriores.
++exports.finanzasV1Consultar = onCall(
++  async (request) => {
++    const { crearApiPublicacion } = require('./finanzas_publicacion');
++    return crearApiPublicacion({ db, FieldValue, HttpsError }).consultar(request);
++  },
++);
++
++exports.finanzasV1Ejecutar = onCall(
++  async (request) => {
++    const { crearApiPublicacion } = require('./finanzas_publicacion');
++    return crearApiPublicacion({ db, FieldValue, HttpsError }).ejecutar(request);
++  },
++);
++
+ /*
+  * Transfiere la administración principal y ambos roles
+  * de forma atómica, validando al titular dentro de la transacción.
+diff --git a/functions/finanzas_publicacion.js b/functions/finanzas_publicacion.js
+new file mode 100644
+index 0000000..831bfae
+--- /dev/null
++++ b/functions/finanzas_publicacion.js
+@@ -0,0 +1,88 @@
++'use strict';
++
++// Conexión de la entrada normal al MISMO backend de FIN-RELEASE-2.
++// No habilita ejecución fuera de demo-fesync ni exporta mantenimiento/fixtures.
++const { exigir, registroExacto } = require('./finanzas_core/dinero');
++const { validarConfiguracionContable, exigirPeriodoContableAbierto } = require('./finanzas_core/configuracion');
++const { crearApiIncremental } = require('./test/finanzas_v1_incremental/api');
++const c = require('./test/finanzas_v1_incremental/comun');
++
++const permisos = Object.freeze({
++  crearCuenta: 'administrarCatalogos', crearCategoria: 'administrarCatalogos',
++  apertura: 'registrarAjustes', ingreso: 'registrarIngresosGastos',
++  gasto: 'registrarIngresosGastos', transferencia: 'transferir',
++  reversion: 'anularMovimientos', ajuste: 'registrarAjustes',
++});
++
++function habilitacionValida(datos, iglesiaId) {
++  return datos && Object.keys(datos).sort().join(',') ===
++    'circuito,habilitado,iglesiaId,versionEsquema' &&
++    datos.versionEsquema === 1 && datos.iglesiaId === iglesiaId &&
++    datos.circuito === 'v1_incremental' && datos.habilitado === true;
++}
++
++function crearApiPublicacion({ db, FieldValue, HttpsError }) {
++  async function atender(nombre, request) {
++    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicia sesión.');
++    // Antes de cualquier acceso a Firestore. Ni flags del cliente ni un documento
++    // habilitado pueden quitar esta barrera de entorno durante FIN-RELEASE-3.
++    try { c.entorno(); } catch {
++      throw new HttpsError('failed-precondition', 'ENTORNO_FINANCIERO_NO_HABILITADO');
++    }
++    try {
++      c.id(request.auth.uid);
++      registroExacto(request.data, nombre === 'ejecutar' ?
++        ['solicitudId', 'contexto', 'operacion', 'campos'] : [],
++      nombre === 'consultar' ? ['contexto', 'limite', 'cursor', 'historialPaginado'] : []);
++      if (nombre === 'ejecutar') exigir(Object.hasOwn(permisos, request.data.operacion), 'OPERACION_NO_IMPLEMENTADA');
++    } catch (e) {
++      throw new HttpsError('invalid-argument', e.codigo ?? 'SOLICITUD_INVALIDA');
++    }
++    const permiso = nombre === 'consultar' ? 'leer' : permisos[request.data.operacion];
++    const uid = request.auth.uid;
++    // El API conserva sus referencias, cálculos, hashes y recibos. Esta envoltura
++    // agrega las barreras al MISMO intento de cada transacción, no a un preflight
++    // que pudiera quedar obsoleto antes del commit o del replay.
++    const protegido = {
++      doc: db.doc.bind(db), collection: db.collection.bind(db),
++      runTransaction: (fn, ...opciones) => db.runTransaction(async tx => {
++        const perfil = await tx.get(db.doc(`usuarios_globales/${uid}`));
++        exigir(perfil.exists, 'CONTABILIDAD_NO_AUTORIZADA');
++        const iglesiaId = perfil.data().iglesiaId, b = c.base(iglesiaId);
++        const auth = await c.autorizar(db, tx, uid, iglesiaId, permiso);
++        const contexto = { iglesiaId, pertenenciaId: auth.actor.data().pertenenciaId };
++        if (nombre === 'ejecutar' || request.data.contexto !== undefined) {
++          exigir(c.canon(request.data.contexto) === c.canon(contexto), 'PERTENENCIA_ANTERIOR');
++        }
++        const habilitacion = await tx.get(db.doc(`${b}/finanzas_control/publicacion_v1`));
++        exigir(habilitacionValida(habilitacion.data(), iglesiaId), 'CIRCUITO_FINANCIERO_NO_HABILITADO');
++        const [protocolo, control, estado, config, periodo, generacionV2] = await Promise.all([
++          'finanzas_control/protocolo', 'finanzas_control/libro', 'finanzas_control/incremental_v1',
++          'finanzas_config/contabilidad', 'finanzas_control/periodo', 'finanzas_control/generacion_v2',
++        ].map(r => tx.get(db.doc(`${b}/${r}`))));
++        c.protocolo(protocolo.data(), iglesiaId);
++        exigir(!generacionV2.exists && control.exists && config.exists && periodo.exists, 'LIBRO_INCOHERENTE');
++        const v = c.verificar(estado.data(), control.data(), iglesiaId);
++        const cfg = validarConfiguracionContable(config.data(), iglesiaId);
++        const p = periodo.data(), mes = v.proyeccion.periodo.periodoId;
++        exigir(p.versionEsquema === 1 && p.iglesiaId === iglesiaId &&
++          Array.isArray(p.periodosAbiertos) && p.periodosAbiertos.length === 1 &&
++          p.periodosAbiertos[0] === mes && c.canon(v.proyeccion.configuracion) === c.canon(c.configDinero(cfg)),
++        'PERIODO_PROYECCION_DISTINTO');
++        exigirPeriodoContableAbierto({ iglesiaId, huboMovimientos: control.data().huboMovimientos,
++          periodosAbiertos: p.periodosAbiertos }, iglesiaId, mes);
++        const resumen = await tx.get(db.doc(`${b}/finanzas_resumenes/${mes}`));
++        exigir(resumen.exists && resumen.data().ultimaSecuencia === control.data().ultimaSecuencia &&
++          c.canon(resumen.data().datos) === c.canon(c.resumen(v)), 'RESUMEN_PROYECCION_DIVERGENTE');
++        return fn(tx);
++      }, ...opciones),
++    };
++    return crearApiIncremental({ db: protegido, FieldValue, HttpsError })[nombre](request);
++  }
++  return {
++    consultar: request => atender('consultar', request),
++    ejecutar: request => atender('ejecutar', request),
++  };
++}
++
++module.exports = { crearApiPublicacion };
+diff --git a/functions/test/finanzas_publicacion.test.js b/functions/test/finanzas_publicacion.test.js
+new file mode 100644
+index 0000000..c7a7a67
+--- /dev/null
++++ b/functions/test/finanzas_publicacion.test.js
+@@ -0,0 +1,56 @@
++'use strict';
++const test = require('node:test'), assert = require('node:assert/strict');
++const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
++const { crearApiPublicacion } = require('../finanzas_publicacion');
++class HttpsError extends Error { constructor(code, message) { super(message); this.code = code; } }
++
++test('Publicación: sin Auth se rechaza antes de usar DB', async () => {
++  const api = crearApiPublicacion({ db: null, HttpsError });
++  await assert.rejects(api.consultar({data:{}}), e => e.code === 'unauthenticated');
++  await assert.rejects(api.ejecutar({data:{}}), e => e.code === 'unauthenticated');
++});
++
++test('Publicación: entorno real, ausente o contradictorio no llega a DB', async () => {
++  const valido = { GCLOUD_PROJECT:'demo-fesync',GOOGLE_CLOUD_PROJECT:'demo-fesync',
++    FIRESTORE_EMULATOR_HOST:'127.0.0.1:8088',FIREBASE_AUTH_EMULATOR_HOST:'127.0.0.1:9098',FUNCTIONS_EMULATOR:'true' };
++  const keys = [...Object.keys(valido),'GOOGLE_APPLICATION_CREDENTIALS','FIREBASE_TOKEN','GOOGLE_OAUTH_ACCESS_TOKEN'];
++  const antes = Object.fromEntries(keys.map(k=>[k,process.env[k]]));
++  try { for (const patch of [{GCLOUD_PROJECT:'fesync-app-2026'}, {GOOGLE_CLOUD_PROJECT:'real'},
++    {FIRESTORE_EMULATOR_HOST:undefined}, {FIREBASE_AUTH_EMULATOR_HOST:undefined}, {FUNCTIONS_EMULATOR:undefined},
++    {GOOGLE_APPLICATION_CREDENTIALS:'real.json'}, {FIREBASE_TOKEN:'real'}, {GOOGLE_OAUTH_ACCESS_TOKEN:'real'}]) {
++    for (const [k,v] of Object.entries({...valido,GOOGLE_APPLICATION_CREDENTIALS:undefined,
++      FIREBASE_TOKEN:undefined,GOOGLE_OAUTH_ACCESS_TOKEN:undefined,...patch})) {
++      if(v===undefined) delete process.env[k]; else process.env[k]=v;
++    }
++    const api = crearApiPublicacion({db:null,HttpsError});
++    await assert.rejects(api.consultar({auth:{uid:'actor'},data:{historialPaginado:true}}),
++      e => e.code === 'failed-precondition' && e.message === 'ENTORNO_FINANCIERO_NO_HABILITADO');
++  } } finally { for(const [k,v] of Object.entries(antes)) {
++    if(v===undefined) delete process.env[k]; else process.env[k]=v;
++  } }
++});
++
++test('Entrada normal: dos callables nuevos, mismas dependencias y región; no exporta mantenimiento', async () => {
++  let inicializaciones = 0, opciones, recibida;
++  const db = {}, FieldValue = {};
++  const imports = {
++    'firebase-functions/v2/firestore': {onDocumentCreated:(...a)=>a.at(-1),onDocumentUpdated:(...a)=>a.at(-1)},
++    'firebase-functions/v2': {setGlobalOptions(v){opciones=v;}},
++    'firebase-admin/app': {initializeApp(){inicializaciones++;}},
++    'firebase-admin/firestore': {getFirestore:()=>db,FieldValue},
++    'firebase-admin/messaging': {getMessaging:()=>({})},
++    'firebase-functions/v2/https': {onCall:fn=>fn,HttpsError},
++    './finanzas_publicacion': {crearApiPublicacion(deps){
++      assert.equal(deps.db,db);assert.equal(deps.FieldValue,FieldValue);assert.equal(deps.HttpsError,HttpsError);
++      return {consultar:r=>{recibida=r;return 'consulta';},ejecutar:r=>{recibida=r;return 'operacion';}};
++    }},
++  };
++  const sandbox = {exports:{},require:n=>{assert.ok(imports[n],n);return imports[n];}};
++  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../index.js'),'utf8'),sandbox);
++  const request={auth:{uid:'actor'},data:{}};
++  assert.equal(await sandbox.exports.finanzasV1Consultar(request),'consulta');assert.equal(recibida,request);
++  assert.equal(await sandbox.exports.finanzasV1Ejecutar(request),'operacion');assert.equal(recibida,request);
++  assert.equal(inicializaciones,1);assert.equal(opciones.region,'southamerica-west1');
++  assert.deepEqual(Object.keys(sandbox.exports).filter(n=>n.startsWith('finanzasV1')).sort(),
++    ['finanzasV1Consultar','finanzasV1Ejecutar']);
++});
+diff --git a/firebase.finanzas-release.json b/firebase.finanzas-release.json
+new file mode 100644
+index 0000000..9d55a23
+--- /dev/null
++++ b/firebase.finanzas-release.json
+@@ -0,0 +1,12 @@
++{
++  "functions": [{ "source": "functions", "codebase": "fesync-normal-release-local" }],
++  "firestore": { "rules": "firestore.rules" },
++  "emulators": {
++    "auth": { "host": "127.0.0.1", "port": 9098 },
++    "functions": { "host": "127.0.0.1", "port": 5018 },
++    "firestore": { "host": "127.0.0.1", "port": 8088 },
++    "hub": { "host": "127.0.0.1", "port": 4418 },
++    "logging": { "host": "127.0.0.1", "port": 4518 },
++    "ui": { "enabled": false }, "singleProjectMode": true
++  }
++}
+diff --git a/test/finanzas_release3/iniciar.cjs b/test/finanzas_release3/iniciar.cjs
+new file mode 100644
+index 0000000..648eb52
+--- /dev/null
++++ b/test/finanzas_release3/iniciar.cjs
+@@ -0,0 +1,64 @@
++'use strict';
++const fs = require('node:fs'), path = require('node:path'), os = require('node:os'), net = require('node:net');
++const { spawn } = require('node:child_process');
++
++async function main() {
++  if (process.argv.length !== 2 || process.env.GOOGLE_APPLICATION_CREDENTIALS ||
++      process.env.FIREBASE_TOKEN || process.env.GOOGLE_OAUTH_ACCESS_TOKEN ||
++      [process.env.GCLOUD_PROJECT, process.env.GOOGLE_CLOUD_PROJECT].some(p => p && p !== 'demo-fesync')) {
++    throw Error('Solo demo-fesync sin credenciales ni opciones alternativas.');
++  }
++  // Si ya vive la demo anterior, conservarla. No reiniciar Auth/Firestore ni
++  // registrar nuestra segunda instancia en su locator/hub.
++  const locator = path.join(os.tmpdir(), 'hub-demo-fesync.json');
++  let existentes = false;
++  if (fs.existsSync(locator)) {
++    const local = JSON.parse(fs.readFileSync(locator, 'utf8'));
++    if (local.origins?.includes('http://127.0.0.1:4408')) {
++      const r = await fetch('http://127.0.0.1:4408/emulators', {signal:AbortSignal.timeout(3000)});
++      const e = await r.json();
++      existentes = e.auth?.host === '127.0.0.1' && e.auth?.port === 9098 &&
++        e.firestore?.host === '127.0.0.1' && e.firestore?.port === 8088;
++      if(!existentes) throw Error('La infraestructura existente no coincide con demo-fesync.');
++    }
++  }
++  for (const port of (existentes ? [5018,4418,4518] : [8088,9098,5018,4418,4518])) await new Promise((resolve, reject) => {
++    const s = net.createServer(); s.once('error', () => reject(Error(`Puerto ${port} ocupado; no se vacía ni reinicia.`)));
++    s.listen(port, '127.0.0.1', () => s.close(resolve));
++  });
++  const cli = require.resolve('firebase-tools/lib/bin/firebase', { paths: [path.join(process.env.APPDATA, 'npm/node_modules')] });
++  const info = JSON.parse(fs.readFileSync(path.join(path.dirname(cli), '../emulator/downloadableEmulatorInfo.json'))).firestore;
++  if (!fs.existsSync(path.join(os.homedir(), '.cache/firebase/emulators', info.downloadPathRelativeToCacheDir))) {
++    throw Error('Falta el emulador instalado. No se descargará.');
++  }
++  const root = path.resolve(__dirname, '../..'), tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fesync-fin-release3-emu-'));
++  const config = JSON.parse(fs.readFileSync(path.join(root, 'firebase.finanzas-release.json')));
++  config.functions[0].source = path.relative(tmp, path.join(root, 'functions'));
++  fs.copyFileSync(path.join(root, 'firestore.rules'), path.join(tmp, 'firestore.rules'));
++  fs.writeFileSync(path.join(tmp, 'firebase.json'), JSON.stringify(config));
++  const env = {};
++  for (const k of ['PATH','SystemRoot','WINDIR','TEMP','TMP','USERPROFILE','HOME','APPDATA','LOCALAPPDATA','ComSpec',
++    'PATHEXT','JAVA_HOME','NUMBER_OF_PROCESSORS','PROCESSOR_ARCHITECTURE','PROGRAMFILES(X86)']) {
++    if (process.env[k]) env[k] = process.env[k];
++  }
++  if (!env.JAVA_HOME && fs.existsSync('C:/Program Files/Android/Android Studio/jbr/bin/java.exe')) {
++    env.JAVA_HOME = 'C:/Program Files/Android/Android Studio/jbr';
++  }
++  if (env.JAVA_HOME) env.PATH = path.join(env.JAVA_HOME, 'bin') + path.delimiter + env.PATH;
++  Object.assign(env, { GCLOUD_PROJECT: 'demo-fesync', GOOGLE_CLOUD_PROJECT: 'demo-fesync',
++    FIRESTORE_EMULATOR_HOST: '127.0.0.1:8088', FIREBASE_AUTH_EMULATOR_HOST: '127.0.0.1:9098',
++    FUNCTIONS_EMULATOR: 'true', CI: 'true', FIREBASE_CLI_DISABLE_MOTD: 'true', XDG_CONFIG_HOME: tmp,
++    METADATA_SERVER_DETECTION: 'none', TEMP: tmp, TMP: tmp });
++  const command = `"${process.execPath}" --test "${path.join(__dirname, 'integracion.cjs')}"`;
++  console.log(`FIN-RELEASE-3, entrada functions/index.js, solo demo-fesync. Infraestructura y logs: ${tmp}`);
++  fs.writeFileSync(path.join(root, 'docs/fin_release_3_2026-10-24/infraestructura.json'),
++    JSON.stringify({ project: 'demo-fesync', source: 'functions/index.js', tmp, ports: [8088,9098,5018],
++      authFirestoreReutilizados: existentes }, null, 2));
++  const child = spawn(process.execPath, [cli, 'emulators:exec', '--only', existentes ? 'functions' : 'auth,firestore,functions',
++    '--project', 'demo-fesync', '--config', path.join(tmp, 'firebase.json'), '--non-interactive', command],
++  { cwd: tmp, env, stdio: 'inherit', windowsHide: true });
++  await new Promise((resolve, reject) => {
++    child.once('error', reject); child.once('exit', code => { process.exitCode = code === 0 ? 0 : 1; resolve(); });
++  });
++}
++main().catch(e => { console.error(e.message); process.exitCode = 1; });
+diff --git a/test/finanzas_release3/integracion.cjs b/test/finanzas_release3/integracion.cjs
+new file mode 100644
+index 0000000..355efc7
+--- /dev/null
++++ b/test/finanzas_release3/integracion.cjs
+@@ -0,0 +1,303 @@
++'use strict';
++const test = require('node:test'), assert = require('node:assert/strict');
++const fs = require('node:fs'), path = require('node:path'), { createRequire } = require('node:module');
++const req = createRequire(path.resolve(__dirname, '../../functions/package.json'));
++const { entorno } = require('../../functions/test/finanzas_mvp_runtime/api');
++entorno();
++const { abrir, P } = require('../finanzas_mvp/soporte');
++const { FieldValue } = req('firebase-admin/firestore');
++const { HttpsError } = req('firebase-functions/v2/https');
++const { crearApiPublicacion } = require('../../functions/finanzas_publicacion');
++const { crearMantenimiento } = require('../../functions/test/finanzas_v1_incremental/mantenimiento');
++const { crearApertura, crearIngreso, calcularLibro } = require('../../functions/finanzas_core/asientos');
++const db = abrir(), mantenimiento = crearMantenimiento({db,FieldValue});
++const CFG = {moneda:'CLP',escala:0,zonaHoraria:'America/Santiago'};
++const corrida = Date.now().toString(36), evidencia = {proyecto:'demo-fesync',entrada:'functions/index.js',escenarios:[]};
++const out = path.resolve(__dirname, '../../docs/fin_release_3_2026-10-24/emulador.json');
++let contador = 0;
++
++async function usuario(nombre) {
++  const email = `${nombre}.${corrida}@release3.demo`;
++  const r = await fetch('http://127.0.0.1:9098/identitytoolkit.googleapis.com/v1/accounts:signUp?key=demo', {
++    method:'POST',headers:{'Content-Type':'application/json'},
++    body:JSON.stringify({email,password:'SoloDemo123!',returnSecureToken:true}),signal:AbortSignal.timeout(15000)});
++  const d = await r.json(); assert.equal(r.status,200,JSON.stringify(d));return {uid:d.localId,token:d.idToken,email};
++}
++function http(nombre, actor, data) {
++  entorno();
++  return fetch(`http://127.0.0.1:5018/demo-fesync/southamerica-west1/${nombre}`, {
++    method:'POST',headers:{'Content-Type':'application/json',...(actor?{Authorization:`Bearer ${actor.token}`}:{})},
++    body:JSON.stringify({data}),signal:AbortSignal.timeout(90000)});
++}
++async function llamar(nombre, actor, data) {
++  const response = await http(nombre,actor,data), body = await response.json();
++  if(body.error) throw Object.assign(Error(body.error.message), {code:body.error.status,details:body.error.details});
++  assert.ok(Object.hasOwn(body,'result'),JSON.stringify(body));return body.result;
++}
++async function fixture(nombre, n = 1) {
++  const iglesiaId = `fin_release3_${corrida}_${nombre}`, b = `iglesias/${iglesiaId}`;
++  const actores = {};
++  for(const rol of ['admin','encargado','miembro','lider']) actores[rol] = await usuario(`${nombre}_${rol}`);
++  const cuentas = ['caja','banco'].map(id=>({versionEsquema:1,id,iglesiaId,codigo:id.toUpperCase(),nombre:id,
++    tipo:id,moneda:'CLP',escala:0,estado:'activa'}));
++  const movimientos = Array.from({length:n},(_,i)=>(i===0?crearApertura:crearIngreso)({
++    id:i===0?'apertura':`sintetico_${String(i+1).padStart(6,'0')}`,cuenta:{id:'caja',moneda:'CLP',escala:0},
++    montoMinor:i===0?10000:1,fechaContable:'2026-10-01',periodoId:'2026-10',configuracion:CFG}));
++  const resumen = calcularLibro({movimientos,cuentas:cuentas.map(({id,moneda,escala})=>({id,moneda,escala})),
++    configuracion:CFG,periodoId:'2026-10'});
++  const documentos = [
++    [b,{adminUid:actores.admin.uid,nombre:'Release3 solo local',modulosActivos:{}}],
++    ...Object.entries(actores).map(([rol,u])=>[`usuarios_globales/${u.uid}`,{iglesiaId,pertenenciaId:P,
++      rolGlobal:rol==='admin'?'admin_iglesia':rol==='lider'?'lider_area':'servidor',nombre:`Prueba ${rol}`}]),
++    [`${b}/finanzas_config/acceso`,{moduloHabilitado:true,encargadoUid:actores.encargado.uid}],
++    [`${b}/finanzas_config/contabilidad`,{versionEsquema:1,iglesiaId,...CFG}],
++    [`${b}/finanzas_control/protocolo`,{versionProtocolo:1,iglesiaId,epoca:1,estado:'operativo_v1'}],
++    [`${b}/finanzas_control/libro`,{versionEsquema:1,iglesiaId,ultimaSecuencia:n,huboMovimientos:n>0}],
++    [`${b}/finanzas_control/periodo`,{versionEsquema:1,iglesiaId,periodosAbiertos:['2026-10']}],
++    [`${b}/finanzas_resumenes/2026-10`,{versionEsquema:1,iglesiaId,periodoId:'2026-10',ultimaSecuencia:n,datos:resumen}],
++    ...cuentas.flatMap(cuenta=>[[`${b}/finanzas_cuentas/${cuenta.id}`,{cuenta}],
++      [`${b}/finanzas_saldos/${cuenta.id}`,{versionEsquema:1,iglesiaId,cuentaId:cuenta.id,
++        saldoMinor:cuenta.id==='caja'?resumen.saldoFinalMinor:0,huboMovimientos:cuenta.id==='caja'&&n>0,
++        aperturaRegistrada:cuenta.id==='caja'&&n>0,solicitudesInciertas:0,ultimaSecuencia:cuenta.id==='caja'?n:0}]]),
++    ...['ingreso','gasto'].map(naturaleza=>[`${b}/finanzas_categorias/${naturaleza}`,{categoria:{
++      versionEsquema:1,id:naturaleza,iglesiaId,codigo:naturaleza.toUpperCase(),nombre:naturaleza,
++      naturaleza,tipoIngreso:naturaleza==='ingreso'?'diezmos':null,estado:'activa'}}]),
++    ...movimientos.map((movimiento,i)=>[`${b}/finanzas_movimientos/${movimiento.id}`,{
++      versionEsquema:1,iglesiaId,estado:'confirmado',secuencia:i+1,movimiento,
++      clasificacion:{cuentaId:'caja',categoriaId:i===0?null:'ingreso',naturaleza:i===0?'patrimonial':'ingreso',tipoIngreso:i===0?null:'diezmos'},
++      privado:{aportante:{nombre:'NO_PUBLICAR_APORTANTE'}},responsable:{uid:actores.admin.uid,pertenenciaId:P}}]),
++  ];
++  if(n) documentos.push([`${b}/finanzas_aperturas/caja`,{versionEsquema:1,iglesiaId,cuentaId:'caja',movimientoId:'apertura',secuencia:1}]);
++  for(let i=0;i<documentos.length;i+=400) {
++    const batch=db.batch();documentos.slice(i,i+400).forEach(([p,d])=>batch.create(db.doc(p),d));await batch.commit();
++  }
++  const f={iglesiaId,b,...actores};
++  await mantenimiento.pausar(f.admin.uid,iglesiaId);const inicial=await mantenimiento.inicializar(f.admin.uid,iglesiaId);
++  assert.equal(inicial.reporte.estado,'SIN_DIFERENCIAS_OBSERVADAS');return f;
++}
++const contexto = f=>({iglesiaId:f.iglesiaId,pertenenciaId:P});
++function solicitud(f, operacion, campos) {
++  return {solicitudId:`release3_solicitud_${String(++contador).padStart(8,'0')}`,contexto:contexto(f),operacion,campos};
++}
++const gasto = (f,monto=10)=>solicitud(f,'gasto',{cuentaId:'caja',categoriaId:'gasto',montoMinor:monto,fechaContable:'2026-10-24'});
++const query = (f,actor=f.admin,data={})=>llamar('finanzasV1Consultar',actor,{historialPaginado:true,...data});
++const ejecutar = (f,data,actor=f.admin)=>llamar('finanzasV1Ejecutar',actor,data);
++const habilitacion = f=>({versionEsquema:1,iglesiaId:f.iglesiaId,circuito:'v1_incremental',habilitado:true});
++const gateRef = f=>db.doc(`${f.b}/finanzas_control/publicacion_v1`);
++const fallo = (promise,code,message)=>assert.rejects(promise,e=>e.code===code&&(!message||e.message===message));
++
++test('FIN-RELEASE-3: callables por entrada normal en Firebase Emulator',async t=>{
++  t.after(async()=>{fs.writeFileSync(out,JSON.stringify(evidencia,null,2));await db.terminate();});
++  const f=await fixture('principal'), ajena=await fixture('ajena');
++  async function caso(nombre,fn) {await t.test(nombre,async()=>{await fn();evidencia.escenarios.push(nombre);});}
++  await caso('Auth ausente o token inválido rechazados por callable normal',async()=>{
++    await fallo(query(f,null),'UNAUTHENTICATED');
++    await fallo(query(f,{token:'token-invalido'}),'UNAUTHENTICATED');
++    await fallo(ejecutar(f,gasto(f),null),'UNAUTHENTICATED');
++  });
++  await caso('Habilitación ausente, falsa o de otra iglesia bloquea; el cliente no puede activarla',async()=>{
++    await fallo(query(f),'FAILED_PRECONDITION','CIRCUITO_FINANCIERO_NO_HABILITADO');
++    await fallo(ejecutar(f,gasto(f)),'FAILED_PRECONDITION','CIRCUITO_FINANCIERO_NO_HABILITADO');
++    const antes=(await db.doc(`${f.b}/finanzas_control/libro`).get()).data();
++    await fallo(query(f,f.admin,{habilitado:true}),'INVALID_ARGUMENT');
++    await llamar('actualizarEstadoModuloFinanzas',f.admin,{iglesiaId:f.iglesiaId,habilitado:true});
++    assert.equal((await gateRef(f).get()).exists,false);
++    for(const d of [{...habilitacion(f),habilitado:false},{...habilitacion(f),iglesiaId:ajena.iglesiaId},
++      {...habilitacion(f),versionEsquema:2},{...habilitacion(f),circuito:'v2'},{...habilitacion(f),extra:true}]) {
++      await gateRef(f).set(d);await fallo(query(f),'FAILED_PRECONDITION','CIRCUITO_FINANCIERO_NO_HABILITADO');
++    }
++    assert.deepEqual((await db.doc(`${f.b}/finanzas_control/libro`).get()).data(),antes);
++    await gateRef(f).set(habilitacion(f));await gateRef(ajena).set(habilitacion(ajena));
++  });
++  await caso('Titular y encargado vigentes permitidos; miembro y líder sin permiso rechazados',async()=>{
++    const admin=await query(f),enc=await query(f,f.encargado);
++    assert.equal(admin.saldoTotalMinor,10000);assert.equal(enc.permisos.transferir,true);
++    assert.equal(enc.permisos.registrarAjustes,false);assert.equal(enc.permisos.administrarCatalogos,false);
++    for(const actor of [f.miembro,f.lider]) {
++      await fallo(query(f,actor),'PERMISSION_DENIED','CONTABILIDAD_NO_AUTORIZADA');
++      await fallo(ejecutar(f,gasto(f),actor),'PERMISSION_DENIED','CONTABILIDAD_NO_AUTORIZADA');
++    }
++    for(const [operacion,campos] of [
++      ['ajuste',{cuentaId:'caja',deltaMinor:1,fechaContable:'2026-10-24',motivo:'Prueba',referenciaAuditoria:'release3'}],
++      ['reversion',{originalId:'apertura',fechaContable:'2026-10-24',motivo:'Prueba',referenciaAuditoria:'release3'}],
++      ['apertura',{cuentaId:'banco',montoMinor:1,fechaContable:'2026-10-24'}],
++      ['crearCuenta',{cuenta:{codigo:'DENEGADA',nombre:'No autorizada',tipo:'caja'}}],
++      ['crearCategoria',{categoria:{codigo:'DENEGADA',nombre:'No autorizada',naturaleza:'gasto',tipoIngreso:null}}],
++    ]) {
++      await fallo(ejecutar(f,solicitud(f,operacion,campos),f.encargado),'PERMISSION_DENIED','CONTABILIDAD_NO_AUTORIZADA');
++    }
++  });
++  let original;
++  await caso('Ocho acciones V1 por HTTP: cuentas, categorías, apertura, ingreso, gasto, transferencia, ajuste y reversión',async()=>{
++    const cuenta=await ejecutar(f,solicitud(f,'crearCuenta',{cuenta:{codigo:'TERCERA',nombre:'Caja tercera',tipo:'caja'}}));
++    const categoria=await ejecutar(f,solicitud(f,'crearCategoria',{categoria:{codigo:'DONACIONES',nombre:'Donaciones',naturaleza:'ingreso',tipoIngreso:'donaciones'}}));
++    await ejecutar(f,solicitud(f,'apertura',{cuentaId:cuenta.cuentaId,montoMinor:500,fechaContable:'2026-10-24'}));
++    await ejecutar(f,solicitud(f,'ingreso',{cuentaId:'caja',categoriaId:categoria.categoriaId,montoMinor:1000,fechaContable:'2026-10-24'}));
++    const reqGasto=gasto(f,200);original=await ejecutar(f,reqGasto,f.encargado);
++    assert.equal((await query(f)).saldoTotalMinor,11300);
++    await ejecutar(f,solicitud(f,'transferencia',{origenId:'caja',destinoId:'banco',montoMinor:300,fechaContable:'2026-10-24'}),f.encargado);
++    const transferido=await query(f);assert.equal(transferido.saldoTotalMinor,11300);assert.equal(transferido.saldos.banco,300);
++    await ejecutar(f,solicitud(f,'ajuste',{cuentaId:'caja',deltaMinor:-50,fechaContable:'2026-10-24',motivo:'NO_PUBLICAR_MOTIVO',referenciaAuditoria:'NO_PUBLICAR_REFERENCIA'}));
++    const previo=(await db.doc(`${f.b}/finanzas_movimientos/${original.movimientoId}`).get()).data();
++    const reversa=await ejecutar(f,solicitud(f,'reversion',{originalId:original.movimientoId,fechaContable:'2026-10-24',motivo:'Prueba local',referenciaAuditoria:'release3'}));
++    assert.deepEqual((await db.doc(`${f.b}/finanzas_movimientos/${original.movimientoId}`).get()).data(),previo);
++    assert.equal((await db.doc(`${f.b}/finanzas_reversiones/${original.movimientoId}`).get()).data().reversionId,reversa.movimientoId);
++    assert.equal((await query(f)).saldoTotalMinor,11450);
++    await ejecutar(f,solicitud(f,'ingreso',{cuentaId:'caja',categoriaId:'ingreso',montoMinor:250,fechaContable:'2026-10-24'}),f.encargado);
++    assert.equal((await query(f)).saldoTotalMinor,11700);
++  });
++  await caso('Idempotencia HTTP, cuerpo de respuesta descartado y duplicados concurrentes',async()=>{
++    const s=gasto(f,5),response=await http('finanzasV1Ejecutar',f.admin,s);
++    assert.equal(response.status,200);await response.body.cancel(); // El cliente no interpreta el resultado.
++    const replay=await ejecutar(f,s);assert.equal(replay.historica,true);
++    const a=gasto(f,3),r=await Promise.all([ejecutar(f,a),ejecutar(f,a)]);
++    assert.equal(r[0].movimientoId,r[1].movimientoId);assert.equal(r.filter(v=>!v.historica).length,1);
++    await fallo(ejecutar(f,{...a,campos:{...a.campos,montoMinor:4}}),'FAILED_PRECONDITION','SOLICITUD_ID_REUTILIZADA');
++    evidencia.recuperacionHttp={historica:replay.historica,duplicadoConcurrenteUnico:true};
++  });
++  await caso('Respuesta perdida después del commit real: mismo handler normal recupera recibo',async()=>{
++    let perder=true;
++    const conexion={doc:db.doc.bind(db),collection:db.collection.bind(db),runTransaction:async(...args)=>{
++      const r=await db.runTransaction(...args);
++      if(perder&&r?.estado==='CONFIRMADA'&&!r.historica){perder=false;throw Error('Transporte perdido después de commit real');}return r;
++    }};
++    const api=crearApiPublicacion({db:conexion,FieldValue,HttpsError}),s=gasto(f,2);
++    await assert.rejects(api.ejecutar({auth:{uid:f.admin.uid},data:s}),e=>e.code==='unavailable');
++    assert.equal((await ejecutar(f,s)).historica,true);
++  });
++  await caso('Dos gastos concurrentes por HTTP no sobregiran la cuenta',async()=>{
++    const antes=await query(f),monto=antes.saldos.caja-1;
++    const resultados=await Promise.allSettled([ejecutar(f,gasto(f,monto)),ejecutar(f,gasto(f,monto))]);
++    const aprobado=resultados.filter(r=>r.status==='fulfilled'),rechazado=resultados.filter(r=>r.status==='rejected');
++    assert.equal(aprobado.length,1);assert.equal(rechazado.length,1);
++    assert.equal(rechazado[0].reason.message,'SALDO_INSUFICIENTE');assert.equal((await query(f)).saldos.caja,1);
++    await ejecutar(f,solicitud(f,'reversion',{originalId:aprobado[0].value.movimientoId,fechaContable:'2026-10-24',motivo:'Restaurar ensayo',referenciaAuditoria:'release3'}));
++    assert.equal((await query(f)).saldoTotalMinor,antes.saldoTotalMinor);
++  });
++  await caso('Páginas estables sin duplicados, saltos ni datos privados; cliente antiguo rechazado',async()=>{
++    await fallo(llamar('finanzasV1Consultar',f.admin,{}),'FAILED_PRECONDITION','CLIENTE_HISTORIAL_PAGINADO_REQUERIDO');
++    let pagina=await query(f,f.admin,{limite:3}),secuencias=[],corte=pagina.historial.corte;
++    const cursorAjeno=pagina.historial.cursorSiguiente;
++    await ejecutar(f,gasto(f,1));
++    for(;;){
++      assert.equal(pagina.historial.corte,corte);assert.equal(JSON.stringify(pagina).includes('NO_PUBLICAR'),false);
++      for(const m of pagina.movimientos)for(const campo of ['privado','responsable','huella','precondiciones','solicitudId'])assert.equal(Object.hasOwn(m,campo),false);
++      secuencias.push(...pagina.movimientos.map(m=>m.secuencia));
++      if(!pagina.historial.hayMas)break;
++      pagina=await query(f,f.admin,{limite:3,cursor:pagina.historial.cursorSiguiente});
++    }
++    assert.equal(new Set(secuencias).size,corte);assert.equal(secuencias.length,corte);
++    assert.deepEqual([...secuencias].sort((a,b)=>a-b),Array.from({length:corte},(_,i)=>i+1));
++    await fallo(query(ajena,ajena.admin,{limite:3,cursor:cursorAjeno}),'FAILED_PRECONDITION','CURSOR_AJENO_O_INVALIDO');
++    evidencia.paginacion={corte,filas:secuencias.length,sinDuplicados:true,privacidad:true};
++  });
++  await caso('Revocación por callable existente impide consulta y nuevas escrituras',async()=>{
++    await llamar('actualizarEncargadoFinanciero',f.admin,{iglesiaId:f.iglesiaId,accion:'revocar',encargadoUid:null});
++    await fallo(query(f,f.encargado),'PERMISSION_DENIED','CONTABILIDAD_NO_AUTORIZADA');
++    await fallo(ejecutar(f,gasto(f),f.encargado),'PERMISSION_DENIED','CONTABILIDAD_NO_AUTORIZADA');
++    await llamar('actualizarEncargadoFinanciero',f.admin,{iglesiaId:f.iglesiaId,accion:'designar',encargadoUid:f.encargado.uid});
++    assert.equal((await query(f,f.encargado)).permisos.leer,true);
++  });
++  await caso('Pertenencia, iglesia y datos de autorización del cliente no conceden permisos',async()=>{
++    await fallo(ejecutar(f,{...gasto(f),auth:{uid:f.admin.uid}},f.miembro),'INVALID_ARGUMENT');
++    await fallo(query(ajena,ajena.admin,{contexto:contexto(f)}),'FAILED_PRECONDITION','PERTENENCIA_ANTERIOR');
++    const perfilRef=db.doc(`usuarios_globales/${f.encargado.uid}`),previo=(await perfilRef.get()).data();
++    await perfilRef.update({iglesiaId:ajena.iglesiaId,pertenenciaId:'b'.repeat(64)});
++    await db.doc(`${ajena.b}/finanzas_config/acceso`).update({encargadoUid:f.encargado.uid});
++    await fallo(ejecutar(f,gasto(f),f.encargado),'FAILED_PRECONDITION','PERTENENCIA_ANTERIOR');
++    await fallo(query(f,f.encargado,{contexto:contexto(f)}),'FAILED_PRECONDITION','PERTENENCIA_ANTERIOR');
++    await perfilRef.set({...previo,pertenenciaId:'b'.repeat(64)});
++    await fallo(ejecutar(f,gasto(f),f.encargado),'FAILED_PRECONDITION','PERTENENCIA_ANTERIOR');
++    await perfilRef.set(previo);
++    await db.doc(`${ajena.b}/finanzas_config/acceso`).update({encargadoUid:ajena.encargado.uid});
++  });
++  await caso('Módulo deshabilitado y titular incoherente bloquean',async()=>{
++    await llamar('actualizarEstadoModuloFinanzas',f.admin,{iglesiaId:f.iglesiaId,habilitado:false});
++    await fallo(query(f),'PERMISSION_DENIED','CONTABILIDAD_NO_AUTORIZADA');
++    await fallo(ejecutar(f,gasto(f)),'PERMISSION_DENIED','CONTABILIDAD_NO_AUTORIZADA');
++    await llamar('actualizarEstadoModuloFinanzas',f.admin,{iglesiaId:f.iglesiaId,habilitado:true});
++    const perfil=db.doc(`usuarios_globales/${f.admin.uid}`);await perfil.update({rolGlobal:'servidor'});
++    await fallo(query(f,f.encargado),'PERMISSION_DENIED','CONTABILIDAD_NO_AUTORIZADA');
++    await perfil.update({rolGlobal:'admin_iglesia'});
++  });
++  await caso('Protocolo, proyección, resumen y período incoherentes rechazan lectura/escritura/replay',async()=>{
++    const recibida=gasto(f,1);await ejecutar(f,recibida);
++    for(const [ruta,alterar] of [
++      ['finanzas_control/protocolo',()=>null],
++      ['finanzas_control/protocolo',d=>({...d,epoca:1})],
++      ['finanzas_control/protocolo',d=>({...d,estado:'bloqueado'})],
++      ['finanzas_control/incremental_v1',()=>null],
++      ['finanzas_control/incremental_v1',d=>({...d,sello:'corrupto'})],
++      ['finanzas_config/contabilidad',()=>null],
++      ['finanzas_resumenes/2026-10',d=>({...d,ultimaSecuencia:0})],
++      ['finanzas_control/periodo',d=>({...d,periodosAbiertos:['2026-11']})],
++    ]){
++      const ref=db.doc(`${f.b}/${ruta}`),previo=(await ref.get()).data(),d=alterar(previo);
++      if(d===null)await ref.delete();else await ref.set(d);
++      await fallo(query(f),'FAILED_PRECONDITION');await fallo(ejecutar(f,gasto(f)),'FAILED_PRECONDITION');
++      await fallo(ejecutar(f,recibida),'FAILED_PRECONDITION');await ref.set(previo);
++    }
++    const cuentaAntes=(await query(f)).historial.corte;
++    await fallo(ejecutar(f,solicitud(f,'gasto',{cuentaId:'caja',categoriaId:'gasto',montoMinor:1,fechaContable:'2026-11-01'})),
++      'FAILED_PRECONDITION');
++    assert.equal((await query(f)).historial.corte,cuentaAntes);
++  });
++  await caso('Deshabilitar entre intención y commit rechaza; tampoco permite replay confirmado',async()=>{
++    const recibida=gasto(f,1);await ejecutar(f,recibida);
++    let bloquear=true;
++    const conexion={doc:db.doc.bind(db),collection:db.collection.bind(db),runTransaction:async(...args)=>{
++      const r=await db.runTransaction(...args);
++      if(bloquear&&r?.operacion==='gasto'&&r?.auth){bloquear=false;await gateRef(f).update({habilitado:false});}return r;
++    }};
++    const api=crearApiPublicacion({db:conexion,FieldValue,HttpsError}),s=gasto(f,9);
++    const corte=(await query(f)).historial.corte;
++    await assert.rejects(api.ejecutar({auth:{uid:f.admin.uid},data:s}),e=>e.message==='CIRCUITO_FINANCIERO_NO_HABILITADO');
++    assert.equal((await db.doc(`operaciones_financieras/${f.admin.uid}/solicitudes/${s.solicitudId}`).get()).exists,false);
++    await fallo(ejecutar(f,recibida),'FAILED_PRECONDITION','CIRCUITO_FINANCIERO_NO_HABILITADO');
++    await gateRef(f).update({habilitado:true});assert.equal((await query(f)).historial.corte,corte);
++  });
++  await caso('Revocación entre intención y escritor se revalida antes del commit',async()=>{
++    let revocar=true;
++    const conexion={doc:db.doc.bind(db),collection:db.collection.bind(db),runTransaction:async(...args)=>{
++      const r=await db.runTransaction(...args);
++      if(revocar&&r?.operacion==='gasto'&&r?.auth){revocar=false;await db.doc(`${f.b}/finanzas_config/acceso`).update({encargadoUid:null});}return r;
++    }};
++    const api=crearApiPublicacion({db:conexion,FieldValue,HttpsError}),s=gasto(f,9),corte=(await query(f)).historial.corte;
++    await assert.rejects(api.ejecutar({auth:{uid:f.encargado.uid},data:s}),e=>e.code==='permission-denied');
++    assert.equal((await db.doc(`operaciones_financieras/${f.encargado.uid}/solicitudes/${s.solicitudId}`).get()).exists,false);
++    await llamar('actualizarEncargadoFinanciero',f.admin,{iglesiaId:f.iglesiaId,accion:'designar',encargadoUid:f.encargado.uid});
++    assert.equal((await query(f)).historial.corte,corte);
++  });
++  await caso('Clientes no pueden leer/escribir habilitación ni recibos; callables antiguos de roles e ingreso funcionan',async()=>{
++    async function rest(ruta,method='GET',body) {
++      const r=await fetch(`http://127.0.0.1:8088/v1/projects/demo-fesync/databases/(default)/documents/${ruta}`,{
++        method,headers:{Authorization:`Bearer ${f.admin.token}`,'Content-Type':'application/json'},
++        ...(body?{body:JSON.stringify(body)}:{})});await r.arrayBuffer();return r.status;
++    }
++    assert.equal(await rest(`${f.b}/finanzas_control/publicacion_v1`),403);
++    assert.equal(await rest(`${f.b}/finanzas_control/publicacion_v1`,'PATCH',{fields:{habilitado:{booleanValue:true}}}),403);
++    assert.equal(await rest(`operaciones_financieras/${f.admin.uid}/solicitudes/privado`),403);
++    const rol=await llamar('obtenerContextoCambioRolMiembro',f.admin,{iglesiaId:f.iglesiaId,uidObjetivo:f.miembro.uid});
++    assert.equal(rol.rolActual,'servidor');assert.equal(rol.pertenenciaId,P);
++    const ingreso=await llamar('consultarEstadoSolicitudIngreso',f.admin,{solicitudId:'release3_solicitud_inexistente',tipo:'vincular'});
++    assert.equal(ingreso.estado,'NO_VERIFICABLE');
++  });
++  await caso('Más de 1.000 movimientos por entrada normal y conciliación independiente',async()=>{
++    const g=await fixture('mil',1001);await gateRef(g).set(habilitacion(g));
++    const r=await ejecutar(g,gasto(g,10));assert.equal(r.secuencia,1002);
++    const rr=await ejecutar(g,solicitud(g,'reversion',{originalId:r.movimientoId,fechaContable:'2026-10-24',motivo:'Prueba local',referenciaAuditoria:'release3'}));
++    assert.equal(rr.secuencia,1003);
++    let pagina=await query(g),secuencias=[];
++    for(;;){secuencias.push(...pagina.movimientos.map(m=>m.secuencia));if(!pagina.historial.hayMas)break;
++      pagina=await query(g,g.admin,{cursor:pagina.historial.cursorSiguiente});}
++    assert.equal(secuencias.length,1003);assert.equal(new Set(secuencias).size,1003);
++    assert.deepEqual([...secuencias].sort((a,b)=>a-b),Array.from({length:1003},(_,i)=>i+1));
++    assert.equal(pagina.saldoTotalMinor,11000);
++    await mantenimiento.pausar(g.admin.uid,g.iglesiaId);const conciliacion=await mantenimiento.conciliar(g.admin.uid,g.iglesiaId);
++    assert.equal(conciliacion.estado,'SIN_DIFERENCIAS_OBSERVADAS');
++    await mantenimiento.pausar(f.admin.uid,f.iglesiaId);const principal=await mantenimiento.conciliar(f.admin.uid,f.iglesiaId);
++    assert.equal(principal.estado,'SIN_DIFERENCIAS_OBSERVADAS');
++    evidencia.mil={secuencias:[1002,1003],paginados:1003,saldo:11000,conciliacion:conciliacion.estado,certificacionHistorica:false};
++    evidencia.fixturePrincipal={iglesiaId:f.iglesiaId,conciliacion:principal.estado};
++  });
++});

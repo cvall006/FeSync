@@ -1,0 +1,19 @@
+{
+  "versionEsquema": 1,
+  "actual": "admin-4",
+  "acreditados": {
+    "admin-2": {
+      "archivo": "runtime_2.json",
+      "sha256": "c4d3279e32bacb8514f54f076614dfe0d7505238e85f6b2789c5de4dc807e1a4"
+    },
+    "admin-3": {
+      "archivo": "runtime_3.json",
+      "sha256": "0bf0d7d73ffa3fe8eb9a1e1e913d4dec5041983a1766ae3b26c58ddd44c58fdf"
+    },
+    "admin-4": {
+      "archivo": "runtime_4.json",
+      "sha256": "ea82fa5adf0dd29f9ff1b69bd017c805e6ca3b2da1fcbe54b731fc8e39e755c2"
+    }
+  },
+  "pendientes": []
+}

@@ -1,0 +1,26 @@
+diff --git a/docs/fin_release_6_2026-10-26/firestore-antes.rules b/firestore.rules
+index 09da67d..f8003d5 100644
+--- a/docs/fin_release_6_2026-10-26/firestore-antes.rules
++++ b/firestore.rules
+@@ -434,17 +434,18 @@ service cloud.firestore {
+       }
+ 
+       match /finanzas_movimientos/{movimientoId} {
+-        allow get, list: if puedeLeerFinanzas();
++        // El documento completo contiene datos privados. Lectura solo vía callable.
++        allow get, list: if false;
+         allow create, update, delete: if false;
+       }
+ 
+       match /finanzas_cierres/{cierreId} {
+-        allow get, list: if puedeLeerFinanzas();
++        allow get, list: if false;
+         allow create, update, delete: if false;
+       }
+ 
+       match /finanzas_auditoria/{eventoId} {
+-        allow get, list: if puedeLeerFinanzas();
++        allow get, list: if false;
+         allow create, update, delete: if false;
+       }
+ 

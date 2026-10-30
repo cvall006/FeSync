@@ -1,0 +1,95 @@
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release9-backup-ezaBxl\\files\\lib\\modules\\finanzas\\finanzas_mvp_screen.dart" "b/C:\\Otro\\fesync\\lib\\modules\\finanzas\\finanzas_mvp_screen.dart"
+index a440f03..b9f6b1c 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release9-backup-ezaBxl\\files\\lib\\modules\\finanzas\\finanzas_mvp_screen.dart"
++++ "b/C:\\Otro\\fesync\\lib\\modules\\finanzas\\finanzas_mvp_screen.dart"
+@@ -354,8 +354,12 @@ class _FinanzasMvpScreenState extends State<FinanzasMvpScreen> {
+     var naturaleza = 'ingreso';
+     var tipoIngreso = 'diezmos';
+     final form = GlobalKey<FormState>();
+-    final resultado = await showDialog<Map<String, dynamic>>(
++    final rutaFormulario = DialogRoute<Map<String, dynamic>>(
+       context: context,
++      themes: InheritedTheme.capture(
++        from: context,
++        to: Navigator.of(context, rootNavigator: true).context,
++      ),
+       builder: (dialogContext) => StatefulBuilder(
+         builder: (context, change) {
+           Widget texto(
+@@ -566,7 +570,13 @@ class _FinanzasMvpScreenState extends State<FinanzasMvpScreen> {
+         },
+       ),
+     );
+-    await Future<void>.delayed(const Duration(milliseconds: 300));
++    final resultado = await Navigator.of(
++      context,
++      rootNavigator: true,
++    ).push(rutaFormulario);
++    // El resultado llega al hacer pop; la ruta puede seguir usando los campos
++    // durante su animación de salida, especialmente si se demora un cuadro.
++    await rutaFormulario.completed;
+     for (final controller in controles.values) {
+       controller.dispose();
+     }
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release9-backup-ezaBxl\\files\\test\\finanzas_release3\\integracion.cjs" "b/C:\\Otro\\fesync\\test\\finanzas_release3\\integracion.cjs"
+index f9dec83..acd7a2f 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release9-backup-ezaBxl\\files\\test\\finanzas_release3\\integracion.cjs"
++++ "b/C:\\Otro\\fesync\\test\\finanzas_release3\\integracion.cjs"
+@@ -13,9 +13,9 @@ const { crearApertura, crearIngreso, calcularLibro } = require('../../functions/
+ const db = abrir(), mantenimiento = crearMantenimiento({db,FieldValue});
+ const CFG = {moneda:'CLP',escala:0,zonaHoraria:'America/Santiago'};
+ const etapa = process.env.FIN_RELEASE_ETAPA ?? '3';
+-if(!['3','4','5','6','7','8'].includes(etapa)) throw Error('Etapa de prueba no admitida.');
++if(!['3','4','5','6','7','8','9'].includes(etapa)) throw Error('Etapa de prueba no admitida.');
+ const corrida = Date.now().toString(36), evidencia = {proyecto:'demo-fesync',entrada:'functions/index.js',etapa,escenarios:[]};
+-const out = path.resolve(__dirname, `../../docs/fin_release_${etapa}_${['5','6','7','8'].includes(etapa) ? '2026-10-26' : '2026-10-24'}/emulador.json`);
++const out = path.resolve(__dirname, `../../docs/fin_release_${etapa}_${['5','6','7','8','9'].includes(etapa) ? '2026-10-26' : '2026-10-24'}/emulador.json`);
+ let contador = 0;
+ 
+ async function usuario(nombre) {
+@@ -303,7 +303,7 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+     evidencia.mil={secuencias:[1002,1003],paginados:1003,saldo:11000,conciliacion:conciliacion.estado,certificacionHistorica:false};
+     evidencia.fixturePrincipal={iglesiaId:f.iglesiaId,conciliacion:principal.estado};
+   });
+-  if(['4','5','6','7','8'].includes(etapa)) {
++  if(['4','5','6','7','8','9'].includes(etapa)) {
+     await caso('Entrada normal registra 200/201 y revierte 201 como 202',async()=>{
+       const g=await fixture('frontera4',199);await gateRef(g).set(habilitacion(g));
+       const r200=await ejecutar(g,gasto(g,1)),r201=await ejecutar(g,gasto(g,10));
+@@ -322,7 +322,7 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+         corte:q.historial.corte,saldo:q.saldoTotalMinor,functionsPort:5018};
+     });
+   }
+-  if(['5','6','7','8'].includes(etapa)) {
++  if(['5','6','7','8','9'].includes(etapa)) {
+     await caso('Adopción existente divergente rechazada sin crear proyección', async()=>{
+       const g=await fixture('divergente5',2,false);
+       await db.doc(`${g.b}/finanzas_saldos/caja`).update({saldoMinor:999});
+@@ -386,7 +386,7 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+       evidencia.continuidad={anterior:'2026-10',nuevo:'2026-11',saldoInicial:9985,saldoFinal:9985,
+         replayAnterior:true,resumenAnteriorIntacto:true,conciliacion:reporte.estado};
+     });
+-    await caso(['6','7','8'].includes(etapa)?'Reglas corregidas: libro, auditoría y recibos privados inaccesibles directamente':
++    await caso(['6','7','8','9'].includes(etapa)?'Reglas corregidas: libro, auditoría y recibos privados inaccesibles directamente':
+       'Reglas actuales: evidencia de lectura directa de privados y auditoría con gate apagado', async()=>{
+       const g=await fixture('privacidad5');
+       async function leer(ruta,absoluta=false) {
+@@ -396,8 +396,8 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+       }
+       assert.equal((await gateRef(g).get()).exists,false);
+       const mov=await leer('finanzas_movimientos/apertura'),audit=await leer('finanzas_auditoria/inicio_incremental_v1_1');
+-      assert.equal(mov.status,['6','7','8'].includes(etapa)?403:200);assert.equal(audit.status,['6','7','8'].includes(etapa)?403:200);
+-      if(['6','7','8'].includes(etapa)){
++      assert.equal(mov.status,['6','7','8','9'].includes(etapa)?403:200);assert.equal(audit.status,['6','7','8','9'].includes(etapa)?403:200);
++      if(['6','7','8','9'].includes(etapa)){
+         assert.equal(JSON.stringify(mov.body).includes('NO_PUBLICAR_APORTANTE'),false);
+         await gateRef(g).set(habilitacion(g));
+         const consulta=await query(g);assert.equal(consulta.saldoTotalMinor,10000);
+@@ -435,6 +435,6 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+         recuperacionAutomatica:false,resolucionOperativaRequerida:true};
+     });
+   }
+-  if(etapa==='8') await require('../finanzas_release8/escenarios.cjs')({caso,fixture,solicitud,gasto,query,ejecutar,llamar,fallo,habilitacion,gateRef,db,FieldValue,HttpsError,contexto,evidencia,P});
++  if(['8','9'].includes(etapa)) await require('../finanzas_release8/escenarios.cjs')({caso,fixture,solicitud,gasto,query,ejecutar,llamar,fallo,habilitacion,gateRef,db,FieldValue,HttpsError,contexto,evidencia,P});
+ 
+ });

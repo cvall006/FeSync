@@ -1,0 +1,618 @@
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\finanzas_publicacion.js" "b/C:\\Otro\\fesync\\functions\\finanzas_publicacion.js"
+index 3440383..e92c2f2 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\finanzas_publicacion.js"
++++ "b/C:\\Otro\\fesync\\functions\\finanzas_publicacion.js"
+@@ -10,10 +10,7 @@ const c = require('./finanzas_v1/comun');
+ const { PERMISOS_OPERACION: permisos } = require('./finanzas_v1/solicitudes');
+ 
+ function habilitacionValida(datos, iglesiaId) {
+-  return datos && Object.keys(datos).sort().join(',') ===
+-    'circuito,habilitado,iglesiaId,versionEsquema' &&
+-    datos.versionEsquema === 1 && datos.iglesiaId === iglesiaId &&
+-    datos.circuito === 'v1_incremental' && datos.habilitado === true;
++  return c.habilitacionValida(datos, iglesiaId);
+ }
+ 
+ function crearApiPublicacion({ db, FieldValue, HttpsError }) {
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\finanzas_v1\\adaptador.js" "b/C:\\Otro\\fesync\\functions\\finanzas_v1\\adaptador.js"
+index 2547534..f5d2a3e 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\finanzas_v1\\adaptador.js"
++++ "b/C:\\Otro\\fesync\\functions\\finanzas_v1\\adaptador.js"
+@@ -36,6 +36,8 @@ function crearAdaptadorIncremental({ db, FieldValue }) {
+     const ref = x => db.doc(`${b}/${x}`), reciboRef = db.doc(`operaciones_financieras/${e.uid}/solicitudes/${s.solicitudId}`);
+     try { return await db.runTransaction(async tx => {
+       const recibo = await tx.get(reciboRef);
++      const descartada = await tx.get(db.doc(`finanzas_resoluciones/${e.uid}/solicitudes/${s.solicitudId}`));
++      exigir(!descartada.exists, 'SOLICITUD_DESCARTADA');
+       if (recibo.exists) {
+         const r = recibo.data(), m = await tx.get(ref(`finanzas_movimientos/${e.movimientoId}`));
+         exigir(r.estado === 'confirmado' && r.versionEsquema === 1 && r.uid === e.uid && r.iglesiaId === s.iglesiaId &&
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\finanzas_v1\\catalogos.js" "b/C:\\Otro\\fesync\\functions\\finanzas_v1\\catalogos.js"
+index 22560a8..dbe189e 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\finanzas_v1\\catalogos.js"
++++ "b/C:\\Otro\\fesync\\functions\\finanzas_v1\\catalogos.js"
+@@ -20,6 +20,8 @@ async function ejecutarCatalogo({ db, FieldValue, entrada }) {
+   const reciboRef = db.doc(`operaciones_financieras/${copia.uid}/solicitudes/${s.solicitudId}`), entidadRef = ref(`finanzas_${coleccion}/${entidadId}`);
+   return db.runTransaction(async tx => {
+     const recibo = await tx.get(reciboRef);
++    const descartada = await tx.get(db.doc(`finanzas_resoluciones/${copia.uid}/solicitudes/${s.solicitudId}`));
++    exigir(!descartada.exists, 'SOLICITUD_DESCARTADA');
+     if (recibo.exists) {
+       const entidad = await tx.get(entidadRef), r = recibo.data();
+       exigir(r.uid === copia.uid && r.huella === huella && r.estado === 'confirmado' && r.iglesiaId === s.iglesiaId &&
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\finanzas_v1\\comun.js" "b/C:\\Otro\\fesync\\functions\\finanzas_v1\\comun.js"
+index aa28104..24e58ea 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\finanzas_v1\\comun.js"
++++ "b/C:\\Otro\\fesync\\functions\\finanzas_v1\\comun.js"
+@@ -54,4 +54,8 @@ function resumen(v) {
+     saldoInicialPorCuenta: Object.fromEntries(Object.values(v.cuentas).map(c => [c.cuentaId, c.saldoInicialPeriodoMinor])),
+     saldoFinalPorCuenta: Object.fromEntries(Object.values(v.cuentas).map(c => [c.cuentaId, c.saldoFinalPeriodoMinor])) };
+ }
+-module.exports = { entorno, entornoOperacion, canon, hash, ver, id, base, configDinero, protocolo, autorizar, sellar, verificar, resumen };
++function habilitacionValida(d, iglesiaId) {
++  return d && Object.keys(d).sort().join(',') === 'circuito,habilitado,iglesiaId,versionEsquema' &&
++    d.versionEsquema === 1 && d.iglesiaId === iglesiaId && d.circuito === 'v1_incremental' && d.habilitado === true;
++}
++module.exports = { entorno, entornoOperacion, canon, hash, ver, id, base, configDinero, protocolo, autorizar, sellar, verificar, resumen, habilitacionValida };
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\finanzas_v1\\mantenimiento.js" "b/C:\\Otro\\fesync\\functions\\finanzas_v1\\mantenimiento.js"
+index 12a14a5..1cf9f67 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\finanzas_v1\\mantenimiento.js"
++++ "b/C:\\Otro\\fesync\\functions\\finanzas_v1\\mantenimiento.js"
+@@ -24,10 +24,10 @@ function reconstruir(checkpoint, iglesiaId, configuracion, cuentas, periodoId) {
+   }
+   return { proyeccion, cuentas: saldos, aperturas };
+ }
+-function crearMantenimiento({ db, FieldValue }) {
++function crearMantenimiento({ db, FieldValue, validarEntorno = c.entorno }) {
+   const ref = (iglesiaId, ruta) => db.doc(`${c.base(iglesiaId)}/${ruta}`);
+   async function pausar(uid, iglesiaId) {
+-    c.entorno(); return db.runTransaction(async tx => {
++    validarEntorno(); return db.runTransaction(async tx => {
+       await c.autorizar(db, tx, uid, iglesiaId, 'administrarConfiguracion');
+       const p = await tx.get(ref(iglesiaId, 'finanzas_control/protocolo')), d = p.data();
+       exigir(d && d.versionProtocolo === 1 && d.iglesiaId === iglesiaId && [1, 2].includes(d.epoca) &&
+@@ -107,7 +107,7 @@ function crearMantenimiento({ db, FieldValue }) {
+     return { p, config, control, periodo, incremental, reconstruido, reporte };
+   }
+   async function inicializar(uid, iglesiaId) {
+-    c.entorno(); return db.runTransaction(async tx => {
++    validarEntorno(); return db.runTransaction(async tx => {
+       const o = await observar(tx, uid, iglesiaId);
+       exigir(!o.incremental.exists, 'NO_REINICIALIZAR_PROYECCIONES');
+       exigir(o.p.data().epoca === 1 && o.reporte.estado === 'SIN_DIFERENCIAS_OBSERVADAS', 'CONCILIACION_REQUERIDA');
+@@ -124,23 +124,23 @@ function crearMantenimiento({ db, FieldValue }) {
+     });
+   }
+   async function conciliar(uid, iglesiaId) {
+-    c.entorno(); return db.runTransaction(async tx => (await observar(tx, uid, iglesiaId)).reporte);
++    validarEntorno(); return db.runTransaction(async tx => (await observar(tx, uid, iglesiaId)).reporte);
+   }
+   async function reanudar(uid, iglesiaId) {
+-    c.entorno(); return db.runTransaction(async tx => {
++    validarEntorno(); return db.runTransaction(async tx => {
+       const o = await observar(tx, uid, iglesiaId);
+       exigir(o.p.data().epoca === 2 && o.incremental.exists && o.reporte.estado === 'SIN_DIFERENCIAS_OBSERVADAS', 'CONCILIACION_REQUERIDA');
+       tx.update(o.p.ref, { estado: 'operativo_v1' }); return o.reporte;
+     });
+   }
+-  async function cambiarPeriodo(uid, iglesiaId, nuevo) {
+-    c.entorno(); exigir(periodoValido(nuevo), 'PERIODO_INVALIDO');
++  async function cambiarPeriodo(uid, iglesiaId, nuevo, { pausado = false } = {}) {
++    validarEntorno(); exigir(periodoValido(nuevo), 'PERIODO_INVALIDO');
+     return db.runTransaction(async tx => {
+       await c.autorizar(db, tx, uid, iglesiaId, 'administrarConfiguracion');
+       const [p, control, incremental, periodo, destino] = await Promise.all([
+         'finanzas_control/protocolo', 'finanzas_control/libro', 'finanzas_control/incremental_v1',
+         'finanzas_control/periodo', `finanzas_resumenes/${nuevo}`].map(r => tx.get(ref(iglesiaId, r))));
+-      c.protocolo(p.data(), iglesiaId); const v = c.verificar(incremental.data(), control.data(), iglesiaId);
++      c.protocolo(p.data(), iglesiaId, pausado); const v = c.verificar(incremental.data(), control.data(), iglesiaId);
+       const anterior = v.proyeccion.periodo.periodoId;
+       const resumenAnterior = await tx.get(ref(iglesiaId, `finanzas_resumenes/${anterior}`));
+       exigir(resumenAnterior.exists && resumenAnterior.data().ultimaSecuencia === control.data().ultimaSecuencia &&
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\finanzas_v1\\solicitudes.js" "b/C:\\Otro\\fesync\\functions\\finanzas_v1\\solicitudes.js"
+index f855b6c..dc5a562 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\finanzas_v1\\solicitudes.js"
++++ "b/C:\\Otro\\fesync\\functions\\finanzas_v1\\solicitudes.js"
+@@ -48,6 +48,8 @@ function crearSolicitudes({ db, HttpsError, adaptador }) {
+       const c = await contexto(tx, uid, permisos[op]);
+       exigir(canon(data.contexto) === canon(c.contexto), 'PERTENENCIA_ANTERIOR');
+       const intentRef = db.doc(`finanzas_mvp_solicitudes/${uid}/solicitudes/${data.solicitudId}`);
++      const descartada = await tx.get(db.doc(`finanzas_resoluciones/${uid}/solicitudes/${data.solicitudId}`));
++      exigir(!descartada.exists, 'SOLICITUD_DESCARTADA');
+       const anterior = await tx.get(intentRef), fingerprint = huella(data);
+       if (anterior.exists) { exigir(anterior.data().huella === fingerprint, 'SOLICITUD_ID_REUTILIZADA'); return anterior.data().entrada; }
+       const [config, periodo] = await Promise.all(['finanzas_config/contabilidad', 'finanzas_control/periodo'].map(r => tx.get(db.doc(`${c.base}/${r}`))));
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\test\\finanzas_publicacion.test.js" "b/C:\\Otro\\fesync\\functions\\test\\finanzas_publicacion.test.js"
+index c7a7a67..4bf741d 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\test\\finanzas_publicacion.test.js"
++++ "b/C:\\Otro\\fesync\\functions\\test\\finanzas_publicacion.test.js"
+@@ -30,7 +30,7 @@ test('Publicación: entorno real, ausente o contradictorio no llega a DB', async
+   } }
+ });
+ 
+-test('Entrada normal: dos callables nuevos, mismas dependencias y región; no exporta mantenimiento', async () => {
++test('Entrada normal: cuatro callables V1, mismas dependencias y región; sin helpers administrativos directos', async () => {
+   let inicializaciones = 0, opciones, recibida;
+   const db = {}, FieldValue = {};
+   const imports = {
+@@ -52,5 +52,5 @@ test('Entrada normal: dos callables nuevos, mismas dependencias y región; no ex
+   assert.equal(await sandbox.exports.finanzasV1Ejecutar(request),'operacion');assert.equal(recibida,request);
+   assert.equal(inicializaciones,1);assert.equal(opciones.region,'southamerica-west1');
+   assert.deepEqual(Object.keys(sandbox.exports).filter(n=>n.startsWith('finanzasV1')).sort(),
+-    ['finanzasV1Consultar','finanzasV1Ejecutar']);
++    ['finanzasV1Consultar','finanzasV1Ejecutar','finanzasV1Mantener','finanzasV1ResolverSolicitud']);
+ });
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\lib\\modules\\finanzas\\finanzas_mvp_screen.dart" "b/C:\\Otro\\fesync\\lib\\modules\\finanzas\\finanzas_mvp_screen.dart"
+index 59e5109..a440f03 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\lib\\modules\\finanzas\\finanzas_mvp_screen.dart"
++++ "b/C:\\Otro\\fesync\\lib\\modules\\finanzas\\finanzas_mvp_screen.dart"
+@@ -23,6 +23,7 @@ class _FinanzasMvpScreenState extends State<FinanzasMvpScreen> {
+   String? _error;
+   bool _cargando = false;
+   bool _pendiente = false;
++  String _estadoPendiente = 'INCIERTA';
+   int _pagina = 0;
+   int _revision = 0;
+   StreamSubscription<dynamic>? _acceso;
+@@ -54,6 +55,7 @@ class _FinanzasMvpScreenState extends State<FinanzasMvpScreen> {
+     _revision++;
+     setState(() {
+       _datos = null;
++      _estadoPendiente = 'INCIERTA';
+       _cargandoHistorial = false;
+       _cargando = false;
+       _error = 'Acceso no verificable. Actualiza o inicia sesión nuevamente.';
+@@ -102,8 +104,24 @@ class _FinanzasMvpScreenState extends State<FinanzasMvpScreen> {
+       _error = null;
+     });
+     try {
+-      final d = await _servicio.consultar();
++      final anterior = await _servicio.pendiente();
++      var estadoPendiente = 'INCIERTA';
++      if (anterior != null) {
++        try {
++          estadoPendiente =
++              (await _servicio.inspeccionarPendiente())['estado'] as String;
++        } catch (_) {
++          estadoPendiente = 'INCIERTA';
++        }
++      }
+       final p = await _servicio.pendiente();
++      if (mounted && revision == _revision) {
++        setState(() {
++          _pendiente = p != null;
++          _estadoPendiente = estadoPendiente;
++        });
++      }
++      final d = await _servicio.consultar();
+       if (mounted && revision == _revision) {
+         setState(() {
+           _datos = d;
+@@ -136,6 +154,50 @@ class _FinanzasMvpScreenState extends State<FinanzasMvpScreen> {
+   }
+ 
+   bool _permiso(String p) => (_datos?['permisos'] as Map?)?[p] == true;
++
++  String get _mensajePendiente => switch (_estadoPendiente) {
++    'REQUIERE_NUEVA' => 'Las condiciones o el período cambiaron. Esta solicitud no se ejecutará al recuperar. Descártala mediante el servidor y revisa una operación nueva con fecha vigente.',
++    'NO_CONFIRMADA' => 'Aún no hay recibo confirmado. Puedes recuperar la misma solicitud. Para crear otra, primero confirma su descarte en el servidor.',
++    _ => 'No se pudo verificar el resultado. Conserva la solicitud y su identificador. Si tu acceso fue revocado o cambiaste de iglesia, pide ayuda al titular; no vuelvas a registrar la operación.',
++  };
++
++  Future<void> _descartarPendiente() async {
++    final aceptar = await showDialog<bool>(
++      context: context,
++      builder: (context) => AlertDialog(
++        title: const Text('Resolver solicitud pendiente'),
++        content: const Text(
++          'El servidor comprobará si fue confirmada. Si no lo fue, impedirá definitivamente su ejecución. Después podrás crear una operación nueva; no se copiará ni enviará automáticamente.',
++        ),
++        actions: [
++          TextButton(
++            onPressed: () => Navigator.pop(context, false),
++            child: const Text('Cancelar'),
++          ),
++          FilledButton(
++            onPressed: () => Navigator.pop(context, true),
++            child: const Text('Confirmar descarte seguro'),
++          ),
++        ],
++      ),
++    );
++    if (aceptar != true || !mounted) return;
++    await _accion(() async {
++      final r = await _servicio.inspeccionarPendiente(descartar: true);
++      if (mounted) {
++        ScaffoldMessenger.of(context).showSnackBar(
++          SnackBar(
++            content: Text(
++              r['estado'] == 'CONFIRMADA'
++                  ? 'Se recuperó el recibo original. No registres otra vez esta operación.'
++                  : 'Solicitud descartada sin contabilizar. Puedes crear una operación nueva y revisar su fecha.',
++            ),
++          ),
++        );
++      }
++    });
++  }
++
+   Future<void> _cargarMasHistorial() async {
+     final anterior = _datos;
+     final historial = anterior?['historial'] as Map?;
+@@ -246,6 +308,9 @@ class _FinanzasMvpScreenState extends State<FinanzasMvpScreen> {
+ 
+   String _hoy() {
+     final n = DateTime.now();
++    final mes = _datos?['periodoId'] as String?;
++    final actual = '${n.year}-${n.month.toString().padLeft(2, '0')}';
++    if (mes != null && mes != actual) return '$mes-01';
+     return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
+   }
+ 
+@@ -567,28 +632,41 @@ class _FinanzasMvpScreenState extends State<FinanzasMvpScreen> {
+                       color: Theme.of(context).colorScheme.error,
+                     ),
+                   ),
++                if (_pendiente)
++                  Card(
++                    child: Padding(
++                      padding: const EdgeInsets.all(12),
++                      child: Column(
++                        crossAxisAlignment: CrossAxisAlignment.start,
++                        children: [
++                          const Text('Solicitud pendiente de confirmación'),
++                          Text(_mensajePendiente),
++                          Wrap(
++                            spacing: 8,
++                            children: [
++                              TextButton(
++                                onPressed: () => _accion(() async {
++                                  await _servicio.recuperar();
++                                }),
++                                child: const Text('Recuperar'),
++                              ),
++                              TextButton(
++                                onPressed: _descartarPendiente,
++                                child: const Text(
++                                  'Descartar pendiente para crear otra',
++                                ),
++                              ),
++                            ],
++                          ),
++                        ],
++                      ),
++                    ),
++                  ),
+                 if (d != null) ...[
+                   if (finanzasEmuladores)
+                     const Text(
+                       'Entorno local demo-fesync · CLP · sin datos de producción',
+                     ),
+-                  if (_pendiente)
+-                    Card(
+-                      child: ListTile(
+-                        title: const Text(
+-                          'Solicitud pendiente de confirmación',
+-                        ),
+-                        subtitle: const Text(
+-                          'Se conserva su identificador y formulario original. No vuelvas a registrarla.',
+-                        ),
+-                        trailing: TextButton(
+-                          onPressed: () => _accion(() async {
+-                            await _servicio.recuperar();
+-                          }),
+-                          child: const Text('Recuperar'),
+-                        ),
+-                      ),
+-                    ),
+                   if (d['configurada'] != true) ...[
+                     const Text(
+                       'Configuración inicial: CLP, pesos enteros, America/Santiago.',
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\lib\\modules\\finanzas\\finanzas_mvp_service.dart" "b/C:\\Otro\\fesync\\lib\\modules\\finanzas\\finanzas_mvp_service.dart"
+index 470cc62..37eba82 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\lib\\modules\\finanzas\\finanzas_mvp_service.dart"
++++ "b/C:\\Otro\\fesync\\lib\\modules\\finanzas\\finanzas_mvp_service.dart"
+@@ -120,12 +120,128 @@ class FinanzasMvpService {
+     try {
+       final solicitud = await pendiente();
+       if (solicitud == null) throw StateError('No hay solicitud pendiente.');
++      final estado = await _inspeccionar(uid, solicitud, descartar: false);
++      if (estado['estado'] == 'CONFIRMADA') return estado;
++      if (estado['estado'] != 'NO_CONFIRMADA') return estado;
+       return await _resolver(uid, solicitud);
+     } finally {
+       _enCurso.remove(uid);
+     }
+   }
+ 
++  Future<Map<String, dynamic>> inspeccionarPendiente({
++    bool descartar = false,
++  }) async {
++    final uid = _uid;
++    if (!_enCurso.add(uid)) throw StateError('Ya hay un envío en curso.');
++    try {
++      final solicitud = await pendiente();
++      if (solicitud == null) throw StateError('No hay solicitud pendiente.');
++      return await _inspeccionar(uid, solicitud, descartar: descartar);
++    } finally {
++      _enCurso.remove(uid);
++    }
++  }
++
++  Future<Map<String, dynamic>> _inspeccionar(
++    String uid,
++    Map<String, dynamic> solicitud, {
++    required bool descartar,
++  }) async {
++    if (_uidActual() != uid) throw StateError('La sesión cambió.');
++    final r = await _llamar('finanzasV1ResolverSolicitud', {
++      'accion': descartar ? 'descartar' : 'consultar',
++      'solicitud': solicitud,
++    });
++    if (r['estado'] == 'CONFIRMADA') {
++      await _guardarConfirmacion(uid, solicitud, r);
++    } else if (r['estado'] == 'RECHAZADA' && r['puedeCrearNueva'] == true) {
++      await _almacen.escribir(
++        '$_prefijo-resolucion-$uid-${solicitud['solicitudId']}',
++        jsonEncode({'solicitud': solicitud, 'resultado': r}),
++      );
++      await _almacen.escribir(_clave(uid), '');
++    } else if (!['NO_CONFIRMADA', 'REQUIERE_NUEVA'].contains(r['estado'])) {
++      throw StateError('Resultado incierto. Conserva la solicitud pendiente.');
++    }
++    return r;
++  }
++
++  String _idNueva() {
++    final rng = Random.secure();
++    return List.generate(
++      24,
++      (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'),
++    ).join();
++  }
++
++  Future<Map<String, dynamic>?> mantenimientoPendiente() async {
++    final texto = await _almacen.leer('$_prefijo-mantenimiento-$_uid');
++    return texto == null || texto.isEmpty
++        ? null
++        : Map<String, dynamic>.from(jsonDecode(texto) as Map);
++  }
++
++  Future<Map<String, dynamic>> mantener(
++    Map<String, dynamic> contexto,
++    String accion, {
++    String? periodoId,
++    bool recuperar = false,
++    bool descartar = false,
++  }) async {
++    final uid = _uid;
++    if (!_enCurso.add(uid)) throw StateError('Ya hay un envío en curso.');
++    try {
++      var solicitud = await mantenimientoPendiente();
++      if (solicitud != null && !recuperar && !descartar) {
++        throw StateError(
++          'Resuelve primero el paso de mantenimiento pendiente.',
++        );
++      }
++      if (solicitud == null) {
++        if (recuperar || descartar) {
++          throw StateError('No hay mantenimiento pendiente.');
++        }
++        solicitud = {
++          'solicitudId': _idNueva(),
++          'contexto': contexto,
++          'accion': accion,
++          'periodoId': ?periodoId,
++        };
++        await _almacen.escribir(
++          '$_prefijo-mantenimiento-$uid',
++          jsonEncode(solicitud),
++        );
++      }
++      if (_uidActual() != uid) throw StateError('La sesión cambió.');
++      final r = await _llamar(
++        'finanzasV1Mantener',
++        descartar
++            ? {
++                'accion': 'resolverSolicitud',
++                'solicitud': solicitud,
++                'descartar': true,
++              }
++            : solicitud,
++      );
++      if (r['estado'] == 'CONFIRMADA' ||
++          (r['estado'] == 'RECHAZADA' && r['puedeCrearNueva'] == true)) {
++        await _almacen.escribir(
++          '$_prefijo-mantenimiento-recibo-$uid-${solicitud['solicitudId']}',
++          jsonEncode({'solicitud': solicitud, 'resultado': r}),
++        );
++        await _almacen.escribir('$_prefijo-mantenimiento-$uid', '');
++      } else {
++        throw StateError(
++          'Resultado incierto. Conserva el paso de mantenimiento.',
++        );
++      }
++      return r;
++    } finally {
++      _enCurso.remove(uid);
++    }
++  }
++
+   Future<Map<String, dynamic>> _resolver(
+     String uid,
+     Map<String, dynamic> solicitud,
+@@ -140,11 +256,19 @@ class FinanzasMvpService {
+     if (resultado['estado'] != 'CONFIRMADA') {
+       throw StateError('Resultado incierto. Recupera la misma solicitud.');
+     }
++    await _guardarConfirmacion(uid, solicitud, resultado);
++    return resultado;
++  }
++
++  Future<void> _guardarConfirmacion(
++    String uid,
++    Map<String, dynamic> solicitud,
++    Map<String, dynamic> resultado,
++  ) async {
+     await _almacen.escribir(
+       '$_prefijo-recibo-$uid-${solicitud['solicitudId']}',
+       jsonEncode({'solicitud': solicitud, 'resultado': resultado}),
+     );
+     await _almacen.escribir(_clave(uid), '');
+-    return resultado;
+   }
+ }
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\test\\finanzas_mvp_service_test.dart" "b/C:\\Otro\\fesync\\test\\finanzas_mvp_service_test.dart"
+index 5958cbf..2f7e4b8 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\test\\finanzas_mvp_service_test.dart"
++++ "b/C:\\Otro\\fesync\\test\\finanzas_mvp_service_test.dart"
+@@ -46,8 +46,9 @@ void main() {
+       final nuevo = FinanzasMvpService(
+         almacen: m,
+         uidActual: () => 'admin',
+-        llamar: (_, data) async {
+-          expect(data, enviada);
++        llamar: (nombre, data) async {
++          expect(nombre, 'finanzasV1ResolverSolicitud');
++          expect(data['solicitud'], enviada);
+           return {'estado': 'CONFIRMADA', 'historica': true};
+         },
+       );
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\test\\finanzas_release3\\integracion.cjs" "b/C:\\Otro\\fesync\\test\\finanzas_release3\\integracion.cjs"
+index faab4ab..f9dec83 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\test\\finanzas_release3\\integracion.cjs"
++++ "b/C:\\Otro\\fesync\\test\\finanzas_release3\\integracion.cjs"
+@@ -13,9 +13,9 @@ const { crearApertura, crearIngreso, calcularLibro } = require('../../functions/
+ const db = abrir(), mantenimiento = crearMantenimiento({db,FieldValue});
+ const CFG = {moneda:'CLP',escala:0,zonaHoraria:'America/Santiago'};
+ const etapa = process.env.FIN_RELEASE_ETAPA ?? '3';
+-if(!['3','4','5','6','7'].includes(etapa)) throw Error('Etapa de prueba no admitida.');
++if(!['3','4','5','6','7','8'].includes(etapa)) throw Error('Etapa de prueba no admitida.');
+ const corrida = Date.now().toString(36), evidencia = {proyecto:'demo-fesync',entrada:'functions/index.js',etapa,escenarios:[]};
+-const out = path.resolve(__dirname, `../../docs/fin_release_${etapa}_${['5','6','7'].includes(etapa) ? '2026-10-26' : '2026-10-24'}/emulador.json`);
++const out = path.resolve(__dirname, `../../docs/fin_release_${etapa}_${['5','6','7','8'].includes(etapa) ? '2026-10-26' : '2026-10-24'}/emulador.json`);
+ let contador = 0;
+ 
+ async function usuario(nombre) {
+@@ -303,7 +303,7 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+     evidencia.mil={secuencias:[1002,1003],paginados:1003,saldo:11000,conciliacion:conciliacion.estado,certificacionHistorica:false};
+     evidencia.fixturePrincipal={iglesiaId:f.iglesiaId,conciliacion:principal.estado};
+   });
+-  if(['4','5','6','7'].includes(etapa)) {
++  if(['4','5','6','7','8'].includes(etapa)) {
+     await caso('Entrada normal registra 200/201 y revierte 201 como 202',async()=>{
+       const g=await fixture('frontera4',199);await gateRef(g).set(habilitacion(g));
+       const r200=await ejecutar(g,gasto(g,1)),r201=await ejecutar(g,gasto(g,10));
+@@ -322,7 +322,7 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+         corte:q.historial.corte,saldo:q.saldoTotalMinor,functionsPort:5018};
+     });
+   }
+-  if(['5','6','7'].includes(etapa)) {
++  if(['5','6','7','8'].includes(etapa)) {
+     await caso('Adopción existente divergente rechazada sin crear proyección', async()=>{
+       const g=await fixture('divergente5',2,false);
+       await db.doc(`${g.b}/finanzas_saldos/caja`).update({saldoMinor:999});
+@@ -386,7 +386,7 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+       evidencia.continuidad={anterior:'2026-10',nuevo:'2026-11',saldoInicial:9985,saldoFinal:9985,
+         replayAnterior:true,resumenAnteriorIntacto:true,conciliacion:reporte.estado};
+     });
+-    await caso(['6','7'].includes(etapa)?'Reglas corregidas: libro, auditoría y recibos privados inaccesibles directamente':
++    await caso(['6','7','8'].includes(etapa)?'Reglas corregidas: libro, auditoría y recibos privados inaccesibles directamente':
+       'Reglas actuales: evidencia de lectura directa de privados y auditoría con gate apagado', async()=>{
+       const g=await fixture('privacidad5');
+       async function leer(ruta,absoluta=false) {
+@@ -396,8 +396,8 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+       }
+       assert.equal((await gateRef(g).get()).exists,false);
+       const mov=await leer('finanzas_movimientos/apertura'),audit=await leer('finanzas_auditoria/inicio_incremental_v1_1');
+-      assert.equal(mov.status,['6','7'].includes(etapa)?403:200);assert.equal(audit.status,['6','7'].includes(etapa)?403:200);
+-      if(['6','7'].includes(etapa)){
++      assert.equal(mov.status,['6','7','8'].includes(etapa)?403:200);assert.equal(audit.status,['6','7','8'].includes(etapa)?403:200);
++      if(['6','7','8'].includes(etapa)){
+         assert.equal(JSON.stringify(mov.body).includes('NO_PUBLICAR_APORTANTE'),false);
+         await gateRef(g).set(habilitacion(g));
+         const consulta=await query(g);assert.equal(consulta.saldoTotalMinor,10000);
+@@ -435,4 +435,6 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+         recuperacionAutomatica:false,resolucionOperativaRequerida:true};
+     });
+   }
++  if(etapa==='8') await require('../finanzas_release8/escenarios.cjs')({caso,fixture,solicitud,gasto,query,ejecutar,llamar,fallo,habilitacion,gateRef,db,FieldValue,HttpsError,contexto,evidencia,P});
++
+ });
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\test\\finanzas_release6\\privacidad.test.cjs" "b/C:\\Otro\\fesync\\test\\finanzas_release6\\privacidad.test.cjs"
+index 065d06d..8c86578 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\test\\finanzas_release6\\privacidad.test.cjs"
++++ "b/C:\\Otro\\fesync\\test\\finanzas_release6\\privacidad.test.cjs"
+@@ -8,7 +8,8 @@ setLogLevel('silent');let env;
+ const baseline=process.env.FIN_RELEASE6_BASELINE==='true';
+ const libro=['finanzas_movimientos','finanzas_auditoria','finanzas_cierres'];
+ const ocultas=['finanzas_control','finanzas_saldos','finanzas_resumenes','finanzas_aperturas','finanzas_reversiones'];
+-const globales=['operaciones_financieras/admin/solicitudes','finanzas_mvp_solicitudes/admin/solicitudes'];
++const globales=['operaciones_financieras/admin/solicitudes','finanzas_mvp_solicitudes/admin/solicitudes',
++  'finanzas_resoluciones/admin/solicitudes','finanzas_mantenimiento/admin/solicitudes','finanzas_mantenimiento_resoluciones/admin/solicitudes'];
+ const db=uid=>uid===null?env.unauthenticatedContext().firestore():env.authenticatedContext(uid).firestore();
+ async function preparar(cambios){await env.withSecurityRulesDisabled(async c=>{
+   for(const [p,d]of Object.entries(cambios))if(d===null)await deleteDoc(doc(c.firestore(),p));else await setDoc(doc(c.firestore(),p),d);
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\index.js" "b/C:\\Otro\\fesync\\functions\\index.js"
+index e593902..f23f7aa 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\functions\\index.js"
++++ "b/C:\\Otro\\fesync\\functions\\index.js"
+@@ -1271,8 +1271,8 @@ exports.actualizarEstadoModuloFinanzas = onCall(
+   },
+ );
+ 
+-// Circuito nuevo, deshabilitado por defecto y limitado a emuladores durante
+-// FIN-RELEASE-3. No modifica contratos ni habilitación de los callables anteriores.
++// V1: transporte y operación autorizada; permanece deshabilitado por defecto.
++// No modifica contratos ni habilitación de los callables anteriores.
+ exports.finanzasV1Consultar = onCall(
+   async (request) => {
+     const { crearApiPublicacion } = require('./finanzas_publicacion');
+@@ -1287,6 +1287,16 @@ exports.finanzasV1Ejecutar = onCall(
+   },
+ );
+ 
++exports.finanzasV1ResolverSolicitud = onCall(async (request) => {
++  const { crearResolucion } = require('./finanzas_v1/resolucion');
++  return crearResolucion({ db, FieldValue, HttpsError })(request);
++});
++
++exports.finanzasV1Mantener = onCall(async (request) => {
++  const { crearAdministracion } = require('./finanzas_v1/administracion');
++  return crearAdministracion({ db, FieldValue, HttpsError })(request);
++});
++
+ /*
+  * Transfiere la administración principal y ambos roles
+  * de forma atómica, validando al titular dentro de la transacción.
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\lib\\modules\\dashboard\\dashboard_screen.dart" "b/C:\\Otro\\fesync\\lib\\modules\\dashboard\\dashboard_screen.dart"
+index d432df6..99736f8 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release8-backup-wRHiya\\files\\lib\\modules\\dashboard\\dashboard_screen.dart"
++++ "b/C:\\Otro\\fesync\\lib\\modules\\dashboard\\dashboard_screen.dart"
+@@ -10,6 +10,7 @@ import '../comunidad/comunidad_screen.dart';
+ import '../configuracion/configuracion_modulos_screen.dart';
+ import '../escuela/escuela_screen.dart';
+ import '../finanzas/finanzas_mvp_screen.dart';
++import '../finanzas/finanzas_mantenimiento_screen.dart';
+ import '../miembros/gestion_miembros_screen.dart';
+ import '../perfil/perfil_screen.dart';
+ import '../servidores/servidores_screen.dart';
+@@ -132,6 +133,18 @@ class DashboardScreen extends StatelessWidget {
+           },
+         ),
+         actions: [
++          if (usuario.rolGlobal == 'admin_iglesia')
++            IconButton(
++              tooltip: 'Mantenimiento de Finanzas',
++              icon: const Icon(Icons.account_balance),
++              onPressed: () => Navigator.push(
++                context,
++                MaterialPageRoute<void>(
++                  builder: (_) =>
++                      FinanzasMantenimientoScreen(iglesiaId: usuario.iglesiaId),
++                ),
++              ),
++            ),
+           if (usuario.rolGlobal == 'admin_iglesia' ||
+               usuario.rolGlobal == 'lider_area')
+             IconButton(

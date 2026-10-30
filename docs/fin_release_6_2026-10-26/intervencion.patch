@@ -1,0 +1,150 @@
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release6-backup-vuTnze\\files\\test\\finanzas_release3\\integracion.cjs" b/test/finanzas_release3/integracion.cjs
+index 212b51f..bd44a70 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release6-backup-vuTnze\\files\\test\\finanzas_release3\\integracion.cjs"
++++ b/test/finanzas_release3/integracion.cjs
+@@ -13,9 +13,9 @@ const { crearApertura, crearIngreso, calcularLibro } = require('../../functions/
+ const db = abrir(), mantenimiento = crearMantenimiento({db,FieldValue});
+ const CFG = {moneda:'CLP',escala:0,zonaHoraria:'America/Santiago'};
+ const etapa = process.env.FIN_RELEASE_ETAPA ?? '3';
+-if(!['3','4','5'].includes(etapa)) throw Error('Etapa de prueba no admitida.');
++if(!['3','4','5','6'].includes(etapa)) throw Error('Etapa de prueba no admitida.');
+ const corrida = Date.now().toString(36), evidencia = {proyecto:'demo-fesync',entrada:'functions/index.js',etapa,escenarios:[]};
+-const out = path.resolve(__dirname, `../../docs/fin_release_${etapa}_${etapa === '5' ? '2026-10-26' : '2026-10-24'}/emulador.json`);
++const out = path.resolve(__dirname, `../../docs/fin_release_${etapa}_${['5','6'].includes(etapa) ? '2026-10-26' : '2026-10-24'}/emulador.json`);
+ let contador = 0;
+ 
+ async function usuario(nombre) {
+@@ -303,7 +303,7 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+     evidencia.mil={secuencias:[1002,1003],paginados:1003,saldo:11000,conciliacion:conciliacion.estado,certificacionHistorica:false};
+     evidencia.fixturePrincipal={iglesiaId:f.iglesiaId,conciliacion:principal.estado};
+   });
+-  if(['4','5'].includes(etapa)) {
++  if(['4','5','6'].includes(etapa)) {
+     await caso('Entrada normal registra 200/201 y revierte 201 como 202',async()=>{
+       const g=await fixture('frontera4',199);await gateRef(g).set(habilitacion(g));
+       const r200=await ejecutar(g,gasto(g,1)),r201=await ejecutar(g,gasto(g,10));
+@@ -322,7 +322,7 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+         corte:q.historial.corte,saldo:q.saldoTotalMinor,functionsPort:5018};
+     });
+   }
+-  if(etapa === '5') {
++  if(['5','6'].includes(etapa)) {
+     await caso('Adopción existente divergente rechazada sin crear proyección', async()=>{
+       const g=await fixture('divergente5',2,false);
+       await db.doc(`${g.b}/finanzas_saldos/caja`).update({saldoMinor:999});
+@@ -386,19 +386,34 @@ test(`FIN-RELEASE-${etapa}: callables por entrada normal en Firebase Emulator`,a
+       evidencia.continuidad={anterior:'2026-10',nuevo:'2026-11',saldoInicial:9985,saldoFinal:9985,
+         replayAnterior:true,resumenAnteriorIntacto:true,conciliacion:reporte.estado};
+     });
+-    await caso('Reglas actuales: evidencia de lectura directa de privados y auditoría con gate apagado', async()=>{
++    await caso(etapa==='6'?'Reglas corregidas: libro, auditoría y recibos privados inaccesibles directamente':
++      'Reglas actuales: evidencia de lectura directa de privados y auditoría con gate apagado', async()=>{
+       const g=await fixture('privacidad5');
+-      async function leer(ruta) {
+-        const r=await fetch(`http://127.0.0.1:8088/v1/projects/demo-fesync/databases/(default)/documents/${g.b}/${ruta}`,{
++      async function leer(ruta,absoluta=false) {
++        const r=await fetch(`http://127.0.0.1:8088/v1/projects/demo-fesync/databases/(default)/documents/${absoluta?'':g.b+'/'}${ruta}`,{
+           headers:{Authorization:`Bearer ${g.encargado.token}`},signal:AbortSignal.timeout(15000)});
+         return {status:r.status,body:await r.json()};
+       }
+       assert.equal((await gateRef(g).get()).exists,false);
+-      const mov=await leer('finanzas_movimientos/apertura');assert.equal(mov.status,200);
+-      assert.ok(JSON.stringify(mov.body).includes('NO_PUBLICAR_APORTANTE'));
+-      const audit=await leer('finanzas_auditoria/inicio_incremental_v1_1');assert.equal(audit.status,200);
+-      evidencia.bloqueoPrivacidad={gateAusente:true,encargadoLeePrivadoDirectamente:mov.status,
+-        encargadoLeeAuditoriaDirectamente:audit.status,reglasModificadas:false};
++      const mov=await leer('finanzas_movimientos/apertura'),audit=await leer('finanzas_auditoria/inicio_incremental_v1_1');
++      assert.equal(mov.status,etapa==='6'?403:200);assert.equal(audit.status,etapa==='6'?403:200);
++      if(etapa==='6'){
++        assert.equal(JSON.stringify(mov.body).includes('NO_PUBLICAR_APORTANTE'),false);
++        await gateRef(g).set(habilitacion(g));
++        const consulta=await query(g);assert.equal(consulta.saldoTotalMinor,10000);
++        assert.equal(JSON.stringify(consulta).includes('NO_PUBLICAR_APORTANTE'),false);
++        const s=gasto(g,3),r=await ejecutar(g,s);assert.equal(r.estado,'CONFIRMADA');
++        assert.equal((await ejecutar(g,s)).historica,true);
++        assert.equal((await leer(`finanzas_movimientos/${r.movimientoId}`)).status,403);
++        assert.equal((await leer(`finanzas_auditoria/${r.movimientoId}`)).status,403);
++        assert.equal((await leer(`operaciones_financieras/${g.admin.uid}/solicitudes/${s.solicitudId}`,true)).status,403);
++        evidencia.privacidadCorregida={gateAusenteDeniega:true,gateHabilitadoTambienDeniega:true,
++          callableConsultaFiltrada:true,callableEscribe:true,lecturaDirectaMovimiento:mov.status,lecturaDirectaAuditoria:audit.status};
++      }else{
++        assert.ok(JSON.stringify(mov.body).includes('NO_PUBLICAR_APORTANTE'));
++        evidencia.bloqueoPrivacidad={gateAusente:true,encargadoLeePrivadoDirectamente:mov.status,
++          encargadoLeeAuditoriaDirectamente:audit.status,reglasModificadas:false};
++      }
+     });
+     await caso('Intención sin commit al cambiar mes queda preservada y exige resolución operativa', async()=>{
+       const g=await fixture('pendienteMes5');await gateRef(g).set(habilitacion(g));
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release6-backup-vuTnze\\files\\test\\finanzas_rules\\finanzas.test.js" b/test/finanzas_rules/finanzas.test.js
+index 81f4928..009e9c5 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release6-backup-vuTnze\\files\\test\\finanzas_rules\\finanzas.test.js"
++++ b/test/finanzas_rules/finanzas.test.js
+@@ -88,13 +88,18 @@ for (const configuracion of [
+ }
+ 
+ for (const uid of ['admin', 'encargado']) {
+-  test(`${uid} obtiene y consulta finanzas habilitadas, incluida auditoría`, async () => {
++  test(`${uid} conserva configuración y catálogos; libro y auditoría requieren servidor`, async () => {
+     const db = dbUsuario(uid);
+     await assertSucceeds(getDoc(acceso(db)));
+     for (const nombre of colecciones) {
+-      await assertSucceeds(getDoc(documento(db, `${nombre}/ejemplo`)));
+-      const resultado = await assertSucceeds(getDocs(collection(db, `iglesias/a/${nombre}`)));
+-      assert.equal(resultado.size, 1);
++      if (['finanzas_cuentas', 'finanzas_categorias'].includes(nombre)) {
++        await assertSucceeds(getDoc(documento(db, `${nombre}/ejemplo`)));
++        const resultado = await assertSucceeds(getDocs(collection(db, `iglesias/a/${nombre}`)));
++        assert.equal(resultado.size, 1);
++      } else {
++        await assertFails(getDoc(documento(db, `${nombre}/ejemplo`)));
++        await assertFails(getDocs(collection(db, `iglesias/a/${nombre}`)));
++      }
+     }
+     await assertFails(getDocs(collection(db, 'iglesias/a/finanzas_config')));
+     await assertFails(getDoc(documento(db, 'finanzas_config/otro')));
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release6-backup-vuTnze\\files\\test\\finanzas_rules\\pertenencia.test.js" b/test/finanzas_rules/pertenencia.test.js
+index ab29d32..102d5dd 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release6-backup-vuTnze\\files\\test\\finanzas_rules\\pertenencia.test.js"
++++ b/test/finanzas_rules/pertenencia.test.js
+@@ -24,10 +24,14 @@ const datosPerfil = (conId = true) => ({
+ });
+ 
+ before(async () => {
++  const puertoAislado = process.env.FINANZAS_RULES_EMULATOR_PORT;
++  if (puertoAislado !== undefined && puertoAislado !== '8098') {
++    throw Error('Solo puerto aislado 8098 o puerto histórico 8088.');
++  }
+   env = await initializeTestEnvironment({
+     projectId: 'demo-fesync',
+     firestore: {
+-      host: '127.0.0.1', port: 8088,
++      host: '127.0.0.1', port: puertoAislado === '8098' ? 8098 : 8088,
+       rules: fs.readFileSync(path.join(__dirname, '..', '..', 'firestore.rules'), 'utf8'),
+     },
+   });
+diff --git "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release6-backup-vuTnze\\files\\firestore.rules" b/firestore.rules
+index 09da67d..f8003d5 100644
+--- "a/C:\\Users\\igles\\AppData\\Local\\Temp\\fesync-fin-release6-backup-vuTnze\\files\\firestore.rules"
++++ b/firestore.rules
+@@ -434,17 +434,18 @@ service cloud.firestore {
+       }
+ 
+       match /finanzas_movimientos/{movimientoId} {
+-        allow get, list: if puedeLeerFinanzas();
++        // El documento completo contiene datos privados. Lectura solo vía callable.
++        allow get, list: if false;
+         allow create, update, delete: if false;
+       }
+ 
+       match /finanzas_cierres/{cierreId} {
+-        allow get, list: if puedeLeerFinanzas();
++        allow get, list: if false;
+         allow create, update, delete: if false;
+       }
+ 
+       match /finanzas_auditoria/{eventoId} {
+-        allow get, list: if puedeLeerFinanzas();
++        allow get, list: if false;
+         allow create, update, delete: if false;
+       }
+ 
