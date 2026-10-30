@@ -26,9 +26,16 @@ abstract interface class EscuelaAsignacionesRepositorio {
   });
 }
 
+abstract interface class EscuelaHistorialFuente {
+  Stream<List<EscuelaCiclo>> ciclos();
+  Stream<List<EscuelaAsignacion>> asignaciones(String cicloId);
+  Stream<EscuelaAsignacion?> asignacionDe(String cicloId, String hermanoUid);
+}
+
 /// Solo las rutas de Escuela. Las reglas acreditan pertenencia y rol vigentes.
 /// Cada edición revalida ciclo y revisión para no pisar otra decisión.
-class EscuelaAsignacionesService implements EscuelaAsignacionesRepositorio {
+class EscuelaAsignacionesService
+    implements EscuelaAsignacionesRepositorio, EscuelaHistorialFuente {
   EscuelaAsignacionesService({
     required this.iglesiaId,
     required this.actorUid,
@@ -81,17 +88,21 @@ class EscuelaAsignacionesService implements EscuelaAsignacionesRepositorio {
   @override
   Stream<List<EscuelaCiclo>> ciclos() {
     _sesion();
-    return _ciclos.snapshots().map((s) {
-      final result = s.docs
-          .where((d) => d.data()['eliminado'] != true)
-          .map((d) => EscuelaCiclo.fromMap(d.id, d.data()))
-          .toList();
-      result.sort((a, b) {
-        final anio = b.anio.compareTo(a.anio);
-        return anio != 0 ? anio : a.nombre.compareTo(b.nombre);
-      });
-      return result;
-    });
+    return _ciclos
+        .snapshots(includeMetadataChanges: true)
+        .where((s) => !s.metadata.isFromCache)
+        .map((s) {
+          _sesion();
+          final result = s.docs
+              .where((d) => d.data()['eliminado'] != true)
+              .map((d) => EscuelaCiclo.fromMap(d.id, d.data()))
+              .toList();
+          result.sort((a, b) {
+            final anio = b.anio.compareTo(a.anio);
+            return anio != 0 ? anio : a.nombre.compareTo(b.nombre);
+          });
+          return result;
+        });
   }
 
   @override
@@ -101,14 +112,34 @@ class EscuelaAsignacionesService implements EscuelaAsignacionesRepositorio {
     return _ciclos
         .doc(cicloId)
         .collection('asignaciones')
-        .snapshots()
-        .map(
-          (s) =>
-              s.docs
-                  .map((d) => EscuelaAsignacion.fromMap(d.id, d.data()))
-                  .toList()
-                ..sort((a, b) => a.nombreHermano.compareTo(b.nombreHermano)),
-        );
+        .snapshots(includeMetadataChanges: true)
+        .where((s) => !s.metadata.isFromCache)
+        .map((s) {
+          _sesion();
+          return s.docs
+              .map((d) => EscuelaAsignacion.fromMap(d.id, d.data()))
+              .toList()
+            ..sort((a, b) => a.nombreHermano.compareTo(b.nombreHermano));
+        });
+  }
+
+  @override
+  Stream<EscuelaAsignacion?> asignacionDe(String cicloId, String hermanoUid) {
+    _sesion();
+    _validarId(cicloId);
+    _validarId(hermanoUid);
+    return _ciclos
+        .doc(cicloId)
+        .collection('asignaciones')
+        .doc(hermanoUid)
+        .snapshots(includeMetadataChanges: true)
+        .where((s) => !s.metadata.isFromCache)
+        .map((s) {
+          _sesion();
+          return s.exists
+              ? EscuelaAsignacion.fromMap(hermanoUid, s.data()!)
+              : null;
+        });
   }
 
   @override
@@ -117,7 +148,10 @@ class EscuelaAsignacionesService implements EscuelaAsignacionesRepositorio {
     return _db
         .collection('usuarios_globales')
         .where('iglesiaId', isEqualTo: iglesiaId)
-        .snapshots()
+        // Igual que Gestión de Miembros: la caché inicial puede contener solo
+        // el perfil propio. El selector usa .first, así que esperar al servidor.
+        .snapshots(includeMetadataChanges: true)
+        .where((s) => !s.metadata.isFromCache)
         .map(
           (s) =>
               s.docs
@@ -257,6 +291,21 @@ class EscuelaAsignacionesService implements EscuelaAsignacionesRepositorio {
       if (anterior != null && anterior['moduloId'] == moduloId) {
         throw StateError('Ese módulo ya está asignado en este ciclo.');
       }
+      final historial = List<Map<String, dynamic>>.from(
+        (anterior?['historialModulos'] as List? ?? const []).map(
+          (e) => Map<String, dynamic>.from(e as Map),
+        ),
+      );
+      if (anterior != null) {
+        if (historial.length >= 100) {
+          throw StateError(
+            'Este ciclo alcanzó el límite de registros. Crea otro ciclo para conservar el historial.',
+          );
+        }
+        historial.add(
+          Map<String, dynamic>.from(anterior)..remove('historialModulos'),
+        );
+      }
       _sesion();
       tx.set(ref, {
         'version': 1,
@@ -272,6 +321,7 @@ class EscuelaAsignacionesService implements EscuelaAsignacionesRepositorio {
         'actualizadoPor': actorUid,
         'actualizadoEn': FieldValue.serverTimestamp(),
         'revision': (revisionEsperada ?? 0) + 1,
+        if (historial.isNotEmpty) 'historialModulos': historial,
       });
     });
   }

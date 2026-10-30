@@ -6,6 +6,7 @@ import '../../core/models/app_models.dart';
 import 'escuela_evaluaciones_screen.dart';
 import 'escuela_models.dart';
 import 'escuela_asignaciones_screen.dart';
+import 'escuela_historial_screen.dart';
 
 class EscuelaScreen extends StatefulWidget {
   final UsuarioModel usuario;
@@ -452,16 +453,40 @@ class _EscuelaScreenState extends State<EscuelaScreen> {
         title: const Text('Escuela Bíblica'),
         actions: [
           IconButton(
-            tooltip: 'Asignaciones e historial',
-            icon: const Icon(Icons.assignment_ind),
+            tooltip: 'Mi formación bíblica',
+            icon: const Icon(Icons.school_outlined),
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute<void>(
                 builder: (_) =>
-                    EscuelaAsignacionesScreen(usuario: widget.usuario),
+                    EscuelaMiFormacionScreen(usuario: widget.usuario),
               ),
             ),
           ),
+          if (_esAdmin)
+            IconButton(
+              tooltip: 'Seguimiento de alumnos',
+              icon: const Icon(Icons.groups_outlined),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      EscuelaSeguimientoScreen(usuario: widget.usuario),
+                ),
+              ),
+            ),
+          if (_esAdmin)
+            IconButton(
+              tooltip: 'Asignaciones e historial',
+              icon: const Icon(Icons.assignment_ind),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      EscuelaAsignacionesScreen(usuario: widget.usuario),
+                ),
+              ),
+            ),
         ],
       ),
       floatingActionButton: _esAdmin

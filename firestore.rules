@@ -374,7 +374,7 @@ service cloud.firestore {
                 'actualizadoPor', 'actualizadoEn', 'revision']) &&
               d.keys().hasOnly(['version', 'hermanoUid', 'nombreHermano',
                 'moduloId', 'tituloModulo', 'estado', 'asignadoPor', 'asignadoEn',
-                'actualizadoPor', 'actualizadoEn', 'revision']) &&
+                'actualizadoPor', 'actualizadoEn', 'revision', 'historialModulos']) &&
               d.version is int && d.version == 1 && d.hermanoUid == hermanoUid &&
               d.nombreHermano is string && d.nombreHermano.size() <= 300 &&
               d.moduloId is string && d.moduloId.size() > 0 &&
@@ -384,6 +384,8 @@ service cloud.firestore {
               d.asignadoPor is string && d.asignadoEn is timestamp &&
               d.actualizadoPor == uid() && d.actualizadoEn == request.time &&
               d.revision is int && d.revision > 0 &&
+              d.get('historialModulos', []) is list &&
+              d.get('historialModulos', []).size() <= 100 &&
               get(rutaUsuario(hermanoUid)).data.get('iglesiaId', '') == iglesiaId;
           }
           function asignacionNuevaValida() {
@@ -395,16 +397,32 @@ service cloud.firestore {
               d.estado == 'pendiente' && d.asignadoPor == uid() &&
               d.asignadoEn == request.time;
           }
-          allow read: if perteneceAIglesia(iglesiaId);
+          function conservaRegistroAnterior() {
+            let anterior = resource.data;
+            let registro = {
+              'version': anterior.version, 'hermanoUid': anterior.hermanoUid,
+              'nombreHermano': anterior.nombreHermano, 'moduloId': anterior.moduloId,
+              'tituloModulo': anterior.tituloModulo, 'estado': anterior.estado,
+              'asignadoPor': anterior.asignadoPor, 'asignadoEn': anterior.asignadoEn,
+              'actualizadoPor': anterior.actualizadoPor, 'actualizadoEn': anterior.actualizadoEn,
+              'revision': anterior.revision
+            };
+            return request.resource.data.get('historialModulos', []) ==
+              anterior.get('historialModulos', []).concat([registro]);
+          }
+          allow get: if perteneceAIglesia(iglesiaId) &&
+            (uid() == hermanoUid || esAdminOLider(iglesiaId));
+          allow list: if esAdminOLider(iglesiaId);
           allow create: if esAdminOLider(iglesiaId) && cicloAbierto() &&
             asignacionValida() && asignacionNuevaValida() &&
+            request.resource.data.get('historialModulos', []).size() == 0 &&
             request.resource.data.revision == 1;
           allow update: if esAdminOLider(iglesiaId) && cicloAbierto() &&
             asignacionValida() &&
             request.resource.data.revision == resource.data.revision + 1 &&
             (
               (request.resource.data.moduloId != resource.data.moduloId &&
-                asignacionNuevaValida()) ||
+                asignacionNuevaValida() && conservaRegistroAnterior()) ||
               request.resource.data.diff(resource.data).affectedKeys()
                 .hasOnly(['estado', 'actualizadoPor', 'actualizadoEn', 'revision'])
             );

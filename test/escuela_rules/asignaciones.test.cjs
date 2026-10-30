@@ -40,7 +40,8 @@ test('Lectura de ciclos y asignaciones limitada a la iglesia',async()=>{
  await setDoc(doc(db('admin'),asignacion),asignacionData());
  for(const actor of ['admin','lider','hermano']){
   await assertSucceeds(getDocs(collection(db(actor),'iglesias/a/escuela_ciclos')));
-  await assertSucceeds(getDocs(collection(db(actor),ciclo+'/asignaciones')));
+  if(actor==='hermano')await assertFails(getDocs(collection(db(actor),ciclo+'/asignaciones')));
+  else await assertSucceeds(getDocs(collection(db(actor),ciclo+'/asignaciones')));
  }
  for(const actor of ['externo',null]){
   await assertFails(getDoc(doc(db(actor),asignacion)));
@@ -71,7 +72,9 @@ test('Cambiar módulo exige reiniciar estado y renovar atribución',async()=>{
  const d=db('admin');await setDoc(doc(d,asignacion),asignacionData());
  await updateDoc(doc(d,asignacion),{estado:'completado',actualizadoEn:serverTimestamp(),revision:2});
  await assertFails(updateDoc(doc(d,asignacion),{moduloId:'m2',tituloModulo:'Evangelios',revision:3,actualizadoEn:serverTimestamp()}));
- await assertSucceeds(setDoc(doc(d,asignacion),{...asignacionData('admin','m2'),revision:3}));
+ const anterior=(await getDoc(doc(d,asignacion))).data();
+ await assertFails(setDoc(doc(d,asignacion),{...asignacionData('admin','m2'),revision:3}));
+ await assertSucceeds(setDoc(doc(d,asignacion),{...asignacionData('admin','m2'),revision:3,historialModulos:[anterior]}));
 });
 test('Cambios de estado preservan metadatos y rechazan revisiones antiguas',async()=>{
  const d=db('admin');await setDoc(doc(d,asignacion),asignacionData());
@@ -155,4 +158,71 @@ test('Borrar y editar asignación en un mismo batch está denegado',async()=>{
  const d=db('admin');await setDoc(doc(d,asignacion),asignacionData());
  const batch=writeBatch(d);batch.update(doc(d,ciclo),{eliminado:true,eliminadoPor:'admin',eliminadoEn:serverTimestamp()});
  batch.update(doc(d,asignacion),{estado:'completado',revision:2,actualizadoEn:serverTimestamp()});await assertFails(batch.commit());
+});
+test('Miembro lee únicamente su documento de historial, sin listar ni modificar otros',async()=>{
+ const d=db('admin');await setDoc(doc(d,asignacion),asignacionData());
+ await seed({'usuarios_globales/otro':{nombre:'Otro',iglesiaId:'a',rolGlobal:'servidor'}});
+ await setDoc(doc(d,ciclo+'/asignaciones/otro'),{...asignacionData(),hermanoUid:'otro',nombreHermano:'Otro'});
+ await assertSucceeds(getDoc(doc(db('hermano'),asignacion)));
+ await assertFails(getDoc(doc(db('hermano'),ciclo+'/asignaciones/otro')));
+ await assertFails(getDoc(doc(db('otro'),asignacion)));
+ await assertFails(getDocs(collection(db('hermano'),ciclo+'/asignaciones')));
+ await assertFails(updateDoc(doc(db('hermano'),asignacion),{estado:'completado',actualizadoPor:'hermano',actualizadoEn:serverTimestamp(),revision:2}));
+});
+test('Administradores y líderes consultan historial general solo de su iglesia; revocación vigente',async()=>{
+ const d=db('admin');await setDoc(doc(d,asignacion),asignacionData());
+ for(const u of ['admin','lider']){await assertSucceeds(getDoc(doc(db(u),asignacion)));await assertSucceeds(getDocs(collection(db(u),ciclo+'/asignaciones')));}
+ await assertFails(getDoc(doc(db('externo'),asignacion)));
+ await seed({'usuarios_globales/lider':{nombre:'Líder',iglesiaId:'a',rolGlobal:'servidor'}});
+ await assertFails(getDoc(doc(db('lider'),asignacion)));await assertFails(getDocs(collection(db('lider'),ciclo+'/asignaciones')));
+});
+test('Completar y asignar siguiente preserva estado y atribución previos, incluso tras cerrar',async()=>{
+ const d=db('admin');await setDoc(doc(d,asignacion),asignacionData());
+ await updateDoc(doc(d,asignacion),{estado:'completado',actualizadoEn:serverTimestamp(),revision:2});
+ const previo=(await getDoc(doc(d,asignacion))).data();
+ await assertSucceeds(setDoc(doc(d,asignacion),{...asignacionData('admin','m2'),revision:3,historialModulos:[previo]}));
+ await updateDoc(doc(d,asignacion),{estado:'en_curso',actualizadoEn:serverTimestamp(),revision:4});
+ await updateDoc(doc(d,ciclo),{estado:'cerrado',cerradoPor:'admin',cerradoEn:serverTimestamp()});
+ const data=(await assertSucceeds(getDoc(doc(db('hermano'),asignacion)))).data();
+ assert.equal(data.historialModulos.length,1);assert.equal(data.historialModulos[0].estado,'completado');assert.equal(data.historialModulos[0].moduloId,'m1');assert.equal(data.moduloId,'m2');
+});
+test('Carga masiva real en emulador: conciliación concurrente, historial y privacidad sin nuevas reglas',async()=>{
+ const adminReq=createRequire(path.resolve(__dirname,'../../functions/package.json'));
+ const {initializeApp,deleteApp}=adminReq('firebase-admin/app');
+ const {getFirestore,Timestamp:AdminTimestamp}=adminReq('firebase-admin/firestore');
+ const {HttpsError}=adminReq('firebase-functions/v2/https');
+ const app=initializeApp({projectId:project},'escuela-carga-prueba');
+ try {
+  const {escuelaCargarModulos}=require('../../functions/escuela_carga_masiva');
+  const ejecutar=(auth='admin',patch={})=>escuelaCargarModulos({auth:auth?{uid:auth}:null,data:{iglesiaId:'a',cicloId:'c1',hermanos:['hermano'],
+   modulos:[{moduloId:'m1',estado:'completado'},{moduloId:'m2',estado:'en_curso'}],confirmar:true,...patch}},
+   {db:getFirestore(app),HttpsError,ahora:()=>AdminTimestamp.now()});
+  const preview=await ejecutar('admin',{confirmar:false});
+  assert.ok(preview.resultados.every(r=>r.resultado==='creado'));
+  assert.equal((await getDoc(doc(db('admin'),asignacion))).exists(),false);
+  const ambos=await Promise.all([ejecutar(),ejecutar('lider')]);
+  assert.equal(ambos.flatMap(r=>r.resultados).filter(r=>r.resultado==='creado').length,2);
+  assert.equal(ambos.flatMap(r=>r.resultados).filter(r=>r.resultado==='omitido').length,2);
+  const propio=(await getDoc(doc(db('hermano'),asignacion))).data();
+  assert.equal(propio.estado,'en_curso');assert.equal(propio.historialModulos.length,1);
+  assert.equal(propio.historialModulos[0].estado,'completado');
+  await assertSucceeds(getDocs(collection(db('lider'),ciclo+'/asignaciones')));
+  await assertFails(getDoc(doc(db('externo'),asignacion)));
+  await assertFails(updateDoc(doc(db('hermano'),asignacion),{estado:'completado'}));
+  for(const uid of ['hermano','externo',null])await assert.rejects(ejecutar(uid),e=>['permission-denied','unauthenticated'].includes(e.code));
+  const conflicto=await ejecutar('admin',{modulos:[{moduloId:'m1',estado:'pendiente'}]});
+  assert.equal(conflicto.resultados[0].resultado,'conflicto');
+  assert.deepEqual((await getDoc(doc(db('admin'),asignacion))).data(),propio);
+ }finally{await deleteApp(app);}
+});
+
+test('No permite inventar, borrar o modificar registros históricos',async()=>{
+ const d=db('admin');const fake={...asignacionData(),estado:'completado',asignadoEn:Timestamp.fromMillis(1),actualizadoEn:Timestamp.fromMillis(1)};
+ await assertFails(setDoc(doc(d,asignacion),{...asignacionData(),historialModulos:[fake]}));
+ await setDoc(doc(d,asignacion),asignacionData());const previo=(await getDoc(doc(d,asignacion))).data();
+ await assertFails(setDoc(doc(d,asignacion),{...asignacionData('admin','m2'),revision:2,historialModulos:[{...previo,estado:'completado'}]}));
+ await setDoc(doc(d,asignacion),{...asignacionData('admin','m2'),revision:2,historialModulos:[previo]});
+ await assertFails(updateDoc(doc(d,asignacion),{historialModulos:[],revision:3,actualizadoEn:serverTimestamp()}));
+ await assertFails(setDoc(doc(d,asignacion),{...asignacionData(),revision:3,historialModulos:[previo]}));
+ await assertFails(updateDoc(doc(d,asignacion),{historialModulos:[{...previo,estado:'completado'}],revision:3,actualizadoEn:serverTimestamp()}));
 });

@@ -13,6 +13,7 @@ class _Repo implements EscuelaAsignacionesRepositorio {
   final cambios = StreamController<List<EscuelaCiclo>>.broadcast();
   final lista = <EscuelaAsignacion>[];
   final porCiclo = <String, List<EscuelaAsignacion>>{};
+  final participantes = [const EscuelaHermano('hermano', 'Ana')];
   bool cerrado = false, falla = false;
   Completer<void>? espera;
   EscuelaCiclo ciclo(String id) => EscuelaCiclo(
@@ -31,8 +32,7 @@ class _Repo implements EscuelaAsignacionesRepositorio {
   Stream<List<EscuelaAsignacion>> asignaciones(String id) =>
       Stream.value(porCiclo[id] ?? lista);
   @override
-  Stream<List<EscuelaHermano>> hermanos() =>
-      Stream.value([const EscuelaHermano('hermano', 'Ana')]);
+  Stream<List<EscuelaHermano>> hermanos() => Stream.value(participantes);
   @override
   Stream<List<EscuelaModuloModel>> modulos() => Stream.value([
     const EscuelaModuloModel(
@@ -247,6 +247,39 @@ void main() {
     await t.pumpAndSettle();
     expect(repo.llamadas, ['crear:Tercer ciclo:2026']);
   });
+
+  testWidgets(
+    'El selector permite asignar a cualquier hermano recibido, además del autenticado',
+    (t) async {
+      repo.participantes.addAll([
+        const EscuelaHermano('lider', 'Usuario autenticado'),
+        const EscuelaHermano('beto', 'Beto'),
+      ]);
+      await montar(t);
+      await t.tap(find.text('Asignar módulo'));
+      await t.pumpAndSettle();
+      final selector = find
+          .descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(DropdownButton<String>),
+          )
+          .first;
+      expect(
+        t
+            .widget<DropdownButton<String>>(selector)
+            .items!
+            .map((item) => item.value),
+        containsAll(['hermano', 'lider', 'beto']),
+      );
+      await t.tap(selector);
+      await t.pumpAndSettle();
+      await t.tap(find.textContaining('Beto').last);
+      await t.pumpAndSettle();
+      await t.tap(find.text('Confirmar asignación'));
+      await t.pumpAndSettle();
+      expect(repo.llamadas, ['asignar:c1:beto:m1:null']);
+    },
+  );
 
   testWidgets('Solo administrador ve eliminar; líder y miembro no', (t) async {
     await montar(t);

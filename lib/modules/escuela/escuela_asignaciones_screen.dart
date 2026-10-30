@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/models/app_models.dart';
 import 'escuela_asignaciones_models.dart';
 import 'escuela_asignaciones_service.dart';
+import 'escuela_carga_masiva_screen.dart';
 
 class EscuelaAsignacionesScreen extends StatefulWidget {
   const EscuelaAsignacionesScreen({
@@ -141,6 +142,21 @@ class _EscuelaAsignacionesScreenState extends State<EscuelaAsignacionesScreen> {
     appBar: AppBar(
       title: const Text('Asignaciones de Escuela'),
       actions: [
+        if (_admin)
+          TextButton.icon(
+            onPressed: _ocupado
+                ? null
+                : () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => EscuelaCargaMasivaScreen(
+                        usuario: widget.usuario,
+                        repositorio: _repo,
+                      ),
+                    ),
+                  ),
+            icon: const Icon(Icons.playlist_add),
+            label: const Text('Carga masiva'),
+          ),
         if (_admin)
           IconButton(
             tooltip: 'Crear ciclo',
@@ -414,7 +430,7 @@ class _AsignacionesCicloState extends State<_AsignacionesCiclo> {
                   ),
                   if (anterior != null)
                     const Text(
-                      'El cambio sustituye la asignación de este ciclo y vuelve a Pendiente. Los ciclos anteriores se conservan.',
+                      'El módulo anterior se conserva en el historial y el nuevo vuelve a Pendiente. Los ciclos anteriores se conservan.',
                     ),
                 ],
               ),

@@ -50,11 +50,14 @@ class EscuelaAsignacion {
     required this.revision,
     this.asignadoEn,
     this.actualizadoEn,
+    this.historialModulos = const [],
   });
   final String hermanoUid, nombreHermano, moduloId, tituloModulo;
   final EstadoEscuela estado;
   final int revision;
   final DateTime? asignadoEn, actualizadoEn;
+  final List<EscuelaAsignacion> historialModulos;
+  Iterable<EscuelaAsignacion> get registros => [...historialModulos, this];
   factory EscuelaAsignacion.fromMap(String uid, Map<String, dynamic> data) {
     if (data['version'] != 1 ||
         data['hermanoUid'] != uid ||
@@ -66,6 +69,11 @@ class EscuelaAsignacion {
         (data['revision'] as int) < 1) {
       throw const FormatException('Asignación de Escuela no compatible.');
     }
+    final historial = data['historialModulos'] ?? const [];
+    if (historial is! List ||
+        historial.any((e) => e is! Map || e.containsKey('historialModulos'))) {
+      throw const FormatException('Historial de Escuela no compatible.');
+    }
     return EscuelaAsignacion(
       hermanoUid: uid,
       nombreHermano: data['nombreHermano'] as String,
@@ -75,6 +83,14 @@ class EscuelaAsignacion {
       revision: data['revision'] as int,
       asignadoEn: (data['asignadoEn'] as Timestamp?)?.toDate(),
       actualizadoEn: (data['actualizadoEn'] as Timestamp?)?.toDate(),
+      historialModulos: List.unmodifiable(
+        historial.map(
+          (e) => EscuelaAsignacion.fromMap(
+            uid,
+            Map<String, dynamic>.from(e as Map),
+          ),
+        ),
+      ),
     );
   }
 }

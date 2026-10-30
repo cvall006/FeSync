@@ -130,6 +130,12 @@ void main() {
       expect(db.documentos[asignacion]!['moduloId'], 'm2');
       expect(db.documentos[asignacion]!['estado'], 'pendiente');
       expect(db.documentos[asignacion]!['revision'], 3);
+      final historia = EscuelaAsignacion.fromMap(
+        'hermano',
+        db.documentos[asignacion]!,
+      );
+      expect(historia.historialModulos.single.moduloId, 'm1');
+      expect(historia.historialModulos.single.estado, EstadoEscuela.completado);
       await expectLater(asignar(modulo: 'm2', revision: 3), throwsStateError);
     },
   );
@@ -234,6 +240,55 @@ void main() {
         'estado': 'abierto',
       }),
       throwsFormatException,
+    );
+  });
+
+  test(
+    'Más de un cambio conserva cada registro y el cierre no los modifica',
+    () async {
+      await asignar();
+      await service.cambiarEstado(
+        'c1',
+        'hermano',
+        EstadoEscuela.completado,
+        revisionEsperada: 1,
+      );
+      await asignar(modulo: 'm2', revision: 2);
+      await asignar(modulo: 'm1', revision: 3);
+      final a = EscuelaAsignacion.fromMap(
+        'hermano',
+        db.documentos[asignacion]!,
+      );
+      expect(a.registros.map((r) => r.moduloId), ['m1', 'm2', 'm1']);
+      expect(a.registros.map((r) => r.estado), [
+        EstadoEscuela.completado,
+        EstadoEscuela.pendiente,
+        EstadoEscuela.pendiente,
+      ]);
+      final antes = Map.of(db.documentos[asignacion]!);
+      await service.cerrarCiclo('c1');
+      expect(db.documentos[asignacion], antes);
+    },
+  );
+  test('Asignación legacy no fabrica registros anteriores', () async {
+    await asignar();
+    final a = EscuelaAsignacion.fromMap('hermano', db.documentos[asignacion]!);
+    expect(a.historialModulos, isEmpty);
+    expect(a.registros.length, 1);
+  });
+  test('Al alcanzar el límite se rechaza el siguiente módulo sin truncar historial', () async {
+    await asignar();
+    final registro = Map<String, dynamic>.of(db.documentos[asignacion]!);
+    db.documentos[asignacion]!['historialModulos'] = List.generate(
+      100,
+      (_) => Map<String, dynamic>.of(registro),
+    );
+    final escrituras = db.escrituras.length;
+    await expectLater(asignar(modulo: 'm2', revision: 1), throwsStateError);
+    expect(db.escrituras.length, escrituras);
+    expect(
+      (db.documentos[asignacion]!['historialModulos'] as List).length,
+      100,
     );
   });
 }

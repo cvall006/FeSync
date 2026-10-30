@@ -42,11 +42,15 @@ instalación existente en Windows; no descarga un emulador automáticamente.
 
 ## Estado de publicación al crear el respaldo
 
-- Hosting live: `006c1af2a69d68d9`, con Finanzas V1 y ciclos/asignaciones de Escuela.
-- Reglas Firestore: `b685784d-af0a-4e10-8d39-0fdbbb1d32d5`.
+- Hosting live: `b1b4ba69de31b647`, con Finanzas V1, historial, seguimiento y carga
+  masiva de módulos de Escuela.
+- Reglas Firestore: `2d89f491-625a-4986-8df4-fe42a68892d1`.
 - Borrado de ciclos: lógico y recuperable, exclusivo de `admin_iglesia`.
-- Se conservaron las 23 Functions; las dos funciones antiguas de ingreso no se
-  actualizaron en los despliegues de Escuela.
+- Se conservaron las 23 Functions anteriores y se añadió `escuelaCargarModulos`
+  (revisión `escuelacargarmodulos-00001-qud`): 24 Functions en total. Las dos
+  funciones antiguas de ingreso no se actualizaron en los despliegues de Escuela.
+- Se incluyen las pruebas de permisos, historial, selector de miembros y carga
+  masiva. No se incluyen datos de alumnos ni respaldos de producción.
 
 El respaldo del código no ejecuta despliegues. No se debe usar un despliegue global
 para reconstruir ese estado: algunas fuentes locales incluyen cambios de backend

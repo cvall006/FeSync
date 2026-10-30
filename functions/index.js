@@ -1215,6 +1215,13 @@ const {
   HttpsError,
 } = require('firebase-functions/v2/https');
 
+exports.escuelaCargarModulos = onCall({ timeoutSeconds: 120 }, async (request) => {
+  const { Timestamp } = require('firebase-admin/firestore');
+  return require('./escuela_carga_masiva').escuelaCargarModulos(request, {
+    db, HttpsError, ahora: () => Timestamp.now(),
+  });
+});
+
 exports.consultarEstadoSolicitudIngreso = onCall(
   async (request) => {
     const { consultarEstadoSolicitudIngreso } = require('./idempotencia_ingreso');
